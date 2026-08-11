@@ -242,6 +242,64 @@ function App() {
     }
   }, [bgmEnabled, ensureAudioContext]);
 
+  const playMoveSound = useCallback(async () => {
+    const context = await ensureAudioContext();
+    if (!context || context.state !== "running") return;
+    const now = context.currentTime;
+    [523.25, 659.25, 783.99].forEach((frequency, index) => {
+      const start = now + index * 0.04;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "triangle";
+      oscillator.frequency.setValueAtTime(frequency, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.028, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(start);
+      oscillator.stop(start + 0.2);
+    });
+  }, [ensureAudioContext]);
+
+  const playAlarmSound = useCallback(async () => {
+    const context = await ensureAudioContext();
+    if (!context || context.state !== "running") return;
+    const now = context.currentTime;
+    [880, 740, 880, 740].forEach((frequency, index) => {
+      const start = now + index * 0.22;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "sawtooth";
+      oscillator.frequency.setValueAtTime(frequency, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.08, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.16);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(start);
+      oscillator.stop(start + 0.18);
+    });
+  }, [ensureAudioContext]);
+
+  const playBuzzerSound = useCallback(async () => {
+    const context = await ensureAudioContext();
+    if (!context || context.state !== "running") return;
+    const now = context.currentTime;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "square";
+    oscillator.frequency.setValueAtTime(220, now);
+    oscillator.frequency.linearRampToValueAtTime(180, now + 0.18);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.045, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.2);
+  }, [ensureAudioContext]);
+
   const playFanfare = useCallback((acute = false) => {
     const context = audioContextRef.current;
     if (!context || context.state !== "running") return;
@@ -271,7 +329,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (running && bgmEnabled) void startBgm();
+    if (!running && bgmEnabled) void startBgm();
     else stopBgm();
     return stopBgm;
   }, [bgmEnabled, running, startBgm, stopBgm]);
@@ -284,9 +342,10 @@ function App() {
 
   useEffect(() => {
     if (!treatmentFeedback) return;
+    void playBuzzerSound();
     const timer = window.setTimeout(() => setTreatmentFeedback(""), 4000);
     return () => window.clearTimeout(timer);
-  }, [treatmentFeedback]);
+  }, [playBuzzerSound, treatmentFeedback]);
 
   const applyScore = useCallback((entry: Omit<ScoreEntry, "id" | "atSeconds">, stableId?: string) => {
     const id = stableId ?? createId("score");
@@ -442,8 +501,8 @@ function App() {
       label: `症例${rule.patientId}が急変: ${rule.message}`, atSeconds: clockSeconds,
     }))]);
     setWorkflowNotice(`症例${dueRules[0].patientId}　急変です！`);
-    playFanfare(true);
-  }, [clockSeconds, elapsedSeconds, playFanfare, runtime, scenario]);
+    void playAlarmSound();
+  }, [clockSeconds, elapsedSeconds, playAlarmSound, runtime, scenario]);
 
   useEffect(() => {
     for (const id of scenario.patientIds) {
@@ -484,8 +543,8 @@ function App() {
       label: `症例${id}: 必須初期治療が期限内に完了せず状態悪化`, atSeconds: clockSeconds,
     }))]);
     setWorkflowNotice(`症例${overdue[0]}　急変です！`);
-    playFanfare(true);
-  }, [clockSeconds, playFanfare, runtime, scenario.patientIds]);
+    void playAlarmSound();
+  }, [clockSeconds, playAlarmSound, runtime, scenario.patientIds]);
 
   const selectedPatient = patients.find((patient) => patient.id === selectedId) ?? null;
   const selectedState = selectedPatient ? runtime[selectedPatient.id] : null;
@@ -578,6 +637,7 @@ function App() {
       return { ...current, [patientId]: nextState };
     });
     recordEvent("patient_moved", `症例${patientId}: ${zoneLabels[state.zone]} → ${zoneLabels[target]}`, patientId);
+    if (running) void playMoveSound();
     const movedToEr = target === "er-severe" || target === "er-moderate";
     const movedToLight = target.startsWith("light-");
     if (patient && (movedToEr || movedToLight)) {
@@ -731,8 +791,8 @@ function App() {
         <div className="clock-panel" aria-label="訓練時計">
           <button className="icon-button" onClick={() => {
             const nextRunning = !running;
-            if (nextRunning && bgmEnabled) void startBgm();
-            if (!nextRunning) stopBgm();
+            if (!nextRunning && bgmEnabled) void startBgm();
+            if (nextRunning) stopBgm();
             setRunning(nextRunning);
             recordEvent(running ? "clock_paused" : "clock_started", running ? "時計を一時停止" : "訓練を開始");
           }} title={running ? "一時停止" : "開始"}>
@@ -752,7 +812,7 @@ function App() {
           <button className={`icon-button ${bgmEnabled ? "active" : ""}`} onClick={() => {
             const nextEnabled = !bgmEnabled;
             setBgmEnabled(nextEnabled);
-            if (nextEnabled && running) void startBgm();
+            if (nextEnabled && !running) void startBgm();
             if (!nextEnabled) stopBgm();
           }} title={bgmEnabled ? "BGMを停止" : "BGMを再生"}>{bgmEnabled ? <Volume2 /> : <VolumeX />}</button>
           <button className={`icon-button ${showScore ? "active" : ""}`} onClick={() => setShowScore((value) => !value)} title="スコアと履歴"><Trophy /></button>
