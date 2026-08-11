@@ -1,3 +1,5 @@
+import { controllerCaseByPatientId, notionCases } from "./notionData";
+
 export type Triage = "red" | "yellow" | "green";
 export type ArrivalMethod = "ambulance" | "car" | "walk";
 export type RoleState = "active" | "virtual";
@@ -6,6 +8,7 @@ export type ZoneId =
   | "scheduled"
   | "ambulance"
   | "walkin"
+  | "vehicle"
   | "triage"
   | "er-severe"
   | "er-moderate"
@@ -16,6 +19,8 @@ export type ZoneId =
   | "light-imaging"
   | "transit"
   | "or"
+  | "ag"
+  | "general"
   | "icu"
   | "eu"
   | "complete";
@@ -33,6 +38,7 @@ export interface Patient {
   ageSex: string;
   history: string;
   ambulanceInfo: string | null;
+  rescueVitals: string | null;
   triageFindings: string;
   vitals: string;
   exam: string;
@@ -42,11 +48,17 @@ export interface Patient {
   opeAg: string;
   additionalEvent: string;
   controllerInstruction: string;
+  controllerChecklist: string;
   actingPoints: string;
   focus: string;
+  learningPoints: string;
+  branchConditions: string;
   moulage: string;
   originalId: string;
   originalCase: string;
+  controllerMediaGuide: string;
+  controllerEscalationGuide: string;
+  controllerEscalationWindow: string;
 }
 
 const toMinute = (time: string) => {
@@ -63,7 +75,9 @@ const parseStringArray = (value: unknown): string[] => {
   }
 };
 
-const sourcePatients = [
+type SourcePatient = Record<string, any>;
+
+const sourcePatients: SourcePatient[] = [
   {
     "id": "a1ae1849-3b18-4aa5-887d-1eb29d6d17ce",
     "url": "https://app.notion.com/a1ae18493b184aa5887d1eb29d6d17ce",
@@ -71,19 +85,19 @@ const sourcePatients = [
     "来院方法": "救急車",
     "ムラージュ": "不要",
     "診察所見": "左胸部圧痛著明、左呼吸音減弱、顔面蒼白、呼吸苦著明。",
-    "追加イベント": "救急車①で搬入する赤症例。直後（10:08）にNo.94が家族の乗用車で来院するため、初療ベッド配分と赤症例の優先順位判断を促す。",
+    "追加イベント": "救急車①で搬入する赤症例。直後（10:08）に症例2が乗用車で来院するため、初療ベッド配分と赤症例の優先順位判断を促す。",
     "演技ポイント": "左胸部を押さえ、浅く速い呼吸。会話は短い単語のみ。横になることを嫌がり座位を希望。",
     "トリアージ・所見": "救急隊情報。左胸部痛、呼吸困難、SpO2低下、左呼吸音減弱、顔面蒼白。",
     "来院時刻": "10:05",
     "想定トリアージ": "赤",
-    "重点訓練ポイント": "胸部外傷、出血性ショック、胸腔ドレーン、手術/転院判断",
+    "重点訓練ポイント": "胸部外傷、出血性ショック、胸腔ドレーン、手術適応判断、手術室・ICU調整",
     "バイタル": "BP 78/52、HR 122、SpO2 85%RA→酸素後90%、RR 40",
     "症例概要": "張碓付近のマイクロバス多重衝突で、座席の肘掛けに左胸部を強打。左多発肋骨骨折、左外傷性血気胸。胸腔ドレーン後も出血が持続し、手術止血を検討する症例。",
     "年齢・性別": "フリー",
     "シナリオ想定": "張碓多重衝突事故の第1波。救急車搬送の赤症例として救外へ直行。",
     "原本症例": "[\"https://app.notion.com/7833006626894ec8a33b5b9b4fff12fc\"]",
     "検査所見": "CT: 左血気胸、多発肋骨骨折。胸腔ドレーン挿入時出血1000mL、その後150mL/hで持続出血。",
-    "コントローラー指示": "胸腔ドレーン後も出血持続。固定の不可設定は置かず、処置継続・輸血・手術適応・搬送/手術調整の判断を確認させる。",
+    "コントローラー指示": "胸腔ドレーン後も出血が持続する設定。処置継続・輸血・手術適応・手術室/ICU調整の判断を確認させる。",
     "userDefined:ID": 1,
     "OPE/AG": "[\"OPE\"]",
     "予想される転帰": "[\"ICU\"]",
@@ -91,7 +105,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 93,
-    "使用症例": "左血気胸・多発肋骨骨折"
+    "使用症例": "左血気胸・多発肋骨骨折",
+    "????": "???",
+    "???????": "[\"ICU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 93
   },
   {
     "id": "8c230ee1-f582-40f5-87b3-b8bf7a5fdb1f",
@@ -120,7 +138,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 94,
-    "使用症例": "不安定型骨盤骨折"
+    "使用症例": "不安定型骨盤骨折",
+    "????": "???",
+    "???????": "[\"ICU\",\"EU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 94
   },
   {
     "id": "6e5e8ca6-5fc4-413f-a434-eed99ea96b46",
@@ -129,7 +151,7 @@ const sourcePatients = [
     "来院方法": "救急車",
     "ムラージュ": "不要",
     "診察所見": "初期JCS 10、GCS 11（E3V3M5）。CT後 JCS 100、GCS 6（E1V1M4）、右瞳孔散大。歩行不可。",
-    "追加イベント": "No.20黄症例と同時到着。救外・軽症ゾーン振り分けを確認。",
+    "追加イベント": "症例19（黄・右大腿骨骨折）と同時到着。救外・軽症ゾーンの振り分けを確認する。",
     "演技ポイント": "来院時はなんとか従命可能。CT後に意識レベル著明低下。痛み刺激に払いのけるのみ、発語なし。",
     "トリアージ・所見": "救急隊情報。頭部打撲、一時意識消失、瞳孔不同、徐脈・高血圧傾向。",
     "来院時刻": "10:14",
@@ -149,7 +171,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 98,
-    "使用症例": "急性硬膜外血腫"
+    "使用症例": "急性硬膜外血腫",
+    "????": "???",
+    "???????": "[\"ICU\",\"EU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 98
   },
   {
     "id": "ab252fce-b2af-48e0-a17e-20bb5af326c6",
@@ -178,7 +204,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 21,
-    "使用症例": "左外踝骨折"
+    "使用症例": "左外踝骨折",
+    "????": "???",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 21
   },
   {
     "id": "01a3b751-d9f1-462d-98b4-806541f23dcd",
@@ -207,7 +237,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 22,
-    "使用症例": "回転性めまい・歩行不能→シートベルト損傷"
+    "使用症例": "回転性めまい・歩行不能→シートベルト損傷",
+    "????": "???",
+    "???????": "[\"ICU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 22
   },
   {
     "id": "ecf470e3-afaf-4658-bec2-d5ced2a53903",
@@ -236,7 +270,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 45,
-    "使用症例": "前腕擦過傷"
+    "使用症例": "前腕擦過傷",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 45
   },
   {
     "id": "5e3b0811-fc35-4477-a9c1-0c88faa78d26",
@@ -265,7 +303,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 46,
-    "使用症例": "足背切創"
+    "使用症例": "足背切創",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 46
   },
   {
     "id": "cc96b32c-2c70-46a4-8f7b-1ef81bbfb6cd",
@@ -294,7 +336,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 47,
-    "使用症例": "軽症頸部痛"
+    "使用症例": "軽症頸部痛",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 47
   },
   {
     "id": "eb89641f-14ae-46fa-a3a0-e1c7735faae7",
@@ -323,7 +369,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 48,
-    "使用症例": "足関節捩挫"
+    "使用症例": "足関節捩挫",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 48
   },
   {
     "id": "cbc545a2-61e5-45b8-b81d-abbb05db7bd8",
@@ -352,7 +402,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 49,
-    "使用症例": "手指切創"
+    "使用症例": "手指切創",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 49
   },
   {
     "id": "99681b3e-4b9a-4d4a-bd91-319967cb640d",
@@ -381,7 +435,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 50,
-    "使用症例": "頭痛・不眠"
+    "使用症例": "頭痛・不眠",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 50
   },
   {
     "id": "2ac91d50-463e-4706-90a3-bbe2036ab23c",
@@ -410,7 +468,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "ﾔﾏﾓﾄ ﾊﾙﾄ",
     "原本ID": 116,
-    "使用症例": "軽微外傷＋発熱（幼児）"
+    "使用症例": "軽微外傷＋発熱（幼児）",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 116
   },
   {
     "id": "d2653271-f7a9-48b3-8fb5-4d6ce5b5a156",
@@ -439,7 +501,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "身元不明（ID未確認）",
     "原本ID": 115,
-    "使用症例": "重症頭部外傷（急性硬膜下血腫）"
+    "使用症例": "重症頭部外傷（急性硬膜下血腫）",
+    "????": "???",
+    "???????": "[\"ICU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 115
   },
   {
     "id": "965bb492-782f-40f9-aecc-e8c27308961a",
@@ -468,7 +534,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 108,
-    "使用症例": "左腎損傷"
+    "使用症例": "左腎損傷",
+    "????": "???",
+    "???????": "[\"EU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 108
   },
   {
     "id": "6660d5d5-71f5-4fad-b729-3f1320e94c50",
@@ -497,7 +567,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 51,
-    "使用症例": "軽症胸部打撲"
+    "使用症例": "軽症胸部打撲",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 51
   },
   {
     "id": "62891f06-6840-4f92-b2ca-d225e7e3e9a7",
@@ -526,7 +600,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 53,
-    "使用症例": "軽いめまい"
+    "使用症例": "軽いめまい",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 53
   },
   {
     "id": "62bddc5a-aefd-456b-a145-31956bf199cb",
@@ -555,7 +633,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 91,
-    "使用症例": "一過性動悸"
+    "使用症例": "一過性動悸",
+    "????": "???",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 91
   },
   {
     "id": "e8fe78e4-e672-4ea5-a1ba-7c507e789744",
@@ -584,7 +666,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 92,
-    "使用症例": "左膝打撲"
+    "使用症例": "左膝打撲",
+    "????": "???",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 92
   },
   {
     "id": "0d9412c3-3629-4d3f-bfd4-ae099aceea25",
@@ -613,7 +699,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\",\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 20,
-    "使用症例": "右大腿骨骨折"
+    "使用症例": "右大腿骨骨折",
+    "????": "???",
+    "???????": "[\"EU\",\"???\"]",
+    "?????": "[\"??\",\"??\"]",
+    "??ID": 20
   },
   {
     "id": "90b5efe8-dbcf-482d-83b4-1df5cb70ab30",
@@ -642,7 +732,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 23,
-    "使用症例": "喃息発作"
+    "使用症例": "喃息発作",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 23
   },
   {
     "id": "1f40bdb8-df35-407f-a299-b918ad3edca5",
@@ -671,7 +765,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 24,
-    "使用症例": "腰椎圧迫骨折"
+    "使用症例": "腰椎圧迫骨折",
+    "????": "???",
+    "???????": "[\"EU\",\"???\"]",
+    "?????": "[\"??\"]",
+    "??ID": 24
   },
   {
     "id": "3c35095c-9da6-4c2d-8e51-7a7a9222bbd8",
@@ -700,7 +798,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 25,
-    "使用症例": "左多発胋骨骨折・小気胸"
+    "使用症例": "左多発胋骨骨折・小気胸",
+    "????": "??",
+    "???????": "[\"EU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 25
   },
   {
     "id": "1db904a7-f893-44e1-9f75-4349a04f70c9",
@@ -729,7 +831,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 26,
-    "使用症例": "安定型骨盤骨折"
+    "使用症例": "安定型骨盤骨折",
+    "????": "???",
+    "???????": "[\"EU\",\"???\"]",
+    "?????": "[\"??\"]",
+    "??ID": 26
   },
   {
     "id": "195cba97-e4f4-460b-9b03-1f4d5277d9df",
@@ -758,7 +864,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 30,
-    "使用症例": "頭部外傷・抗凝固薬内服"
+    "使用症例": "頭部外傷・抗凝固薬内服",
+    "????": "??",
+    "???????": "[\"EU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 30
   },
   {
     "id": "6d09940c-2745-461c-bf37-039a2b3fcde7",
@@ -787,7 +897,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 31,
-    "使用症例": "右肩脱臼"
+    "使用症例": "右肩脱臼",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 31
   },
   {
     "id": "25632685-e0ff-4e41-a8d0-2c443c37b349",
@@ -816,7 +930,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 32,
-    "使用症例": "前腕骨折"
+    "使用症例": "前腕骨折",
+    "????": "???",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 32
   },
   {
     "id": "a16f5038-1ae0-4abf-ac38-e32fd6aaef87",
@@ -845,7 +963,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 36,
-    "使用症例": "粉塵吸入後の咳嗽"
+    "使用症例": "粉塵吸入後の咳嗽",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 36
   },
   {
     "id": "a495a622-0b8d-4c22-8bc4-22826b3f556c",
@@ -874,7 +996,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 37,
-    "使用症例": "低血糖"
+    "使用症例": "低血糖",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 37
   },
   {
     "id": "638be1d5-a3d9-4eb5-8455-d0a9cc0b8158",
@@ -903,7 +1029,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 54,
-    "使用症例": "不安・動悸"
+    "使用症例": "不安・動悸",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 54
   },
   {
     "id": "b53dc8be-3291-449e-880f-0d600a3683b6",
@@ -932,7 +1062,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 55,
-    "使用症例": "膝擦過傷"
+    "使用症例": "膝擦過傷",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 55
   },
   {
     "id": "9caa7d06-e412-465a-9e7b-fd32e20f6213",
@@ -961,7 +1095,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 56,
-    "使用症例": "軽い腰痛"
+    "使用症例": "軽い腰痛",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 56
   },
   {
     "id": "035ce1c6-e4b1-47b6-8291-fd2058ea886b",
@@ -990,7 +1128,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 58,
-    "使用症例": "鼻出血"
+    "使用症例": "鼻出血",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 58
   },
   {
     "id": "13119f7c-f2c6-491f-ac68-7a9f5378297e",
@@ -1019,7 +1161,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "ｺﾊﾞﾔｼ ﾐｵ",
     "原本ID": 118,
-    "使用症例": "小児下腿骨折（閉鎖骨折）"
+    "使用症例": "小児下腿骨折（閉鎖骨折）",
+    "????": "???",
+    "???????": "[\"EU\",\"???\"]",
+    "?????": "[\"??\"]",
+    "??ID": 118
   },
   {
     "id": "4eeb74d1-a8ca-403b-849e-7abebfb5a456",
@@ -1048,7 +1194,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 95,
-    "使用症例": "左手掌切創"
+    "使用症例": "左手掌切創",
+    "????": "???",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 95
   },
   {
     "id": "130eeae1-695b-4741-b9a1-dbe58f59fb99",
@@ -1077,7 +1227,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 101,
-    "使用症例": "左外傷性血気胸・皮下気腫"
+    "使用症例": "左外傷性血気胸・皮下気腫",
+    "????": "???",
+    "???????": "[\"EU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 101
   },
   {
     "id": "179222af-c840-4708-a1be-f2ed9abd5e1e",
@@ -1106,7 +1260,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "ﾀﾅｶ ｿﾗ",
     "原本ID": 119,
-    "使用症例": "重症心身障害児の低酸素（酸素供給途絶）"
+    "使用症例": "重症心身障害児の低酸素（酸素供給途絶）",
+    "????": "???",
+    "???????": "[\"ICU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 119
   },
   {
     "id": "2260fe2a-714d-49ab-859b-cd3b6f021f4f",
@@ -1135,7 +1293,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 100,
-    "使用症例": "前額部擦過傷"
+    "使用症例": "前額部擦過傷",
+    "????": "???",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 100
   },
   {
     "id": "da93e47e-0ae2-49ad-8159-206ee7cf84c3",
@@ -1164,7 +1326,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 27,
-    "使用症例": "脳梗塞疑い"
+    "使用症例": "脳梗塞疑い",
+    "????": "???",
+    "???????": "[\"EU\",\"???\"]",
+    "?????": "[\"??\"]",
+    "??ID": 27
   },
   {
     "id": "5335fd6d-45f9-402f-a81f-65411805790b",
@@ -1193,7 +1359,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 34,
-    "使用症例": "急性腹症疑い"
+    "使用症例": "急性腹症疑い",
+    "????": "??",
+    "???????": "[\"EU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 34
   },
   {
     "id": "043f4f74-5f4f-441b-9107-b88b036518d3",
@@ -1222,7 +1392,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 102,
-    "使用症例": "肝損傷"
+    "使用症例": "肝損傷",
+    "????": "???",
+    "???????": "[\"ICU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 102
   },
   {
     "id": "5a4d22ba-0168-4e92-8e62-b2c1f759095a",
@@ -1251,7 +1425,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 110,
-    "使用症例": "大腿骨骨折＋脂肪塞栓症候群"
+    "使用症例": "大腿骨骨折＋脂肪塞栓症候群",
+    "????": "???",
+    "???????": "[\"ICU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 110
   },
   {
     "id": "60a654f1-1a50-4585-89eb-7d636cf7ee13",
@@ -1280,7 +1458,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 63,
-    "使用症例": "軽い腹痛"
+    "使用症例": "軽い腹痛",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 63
   },
   {
     "id": "0ce76188-d6e7-4e8b-912d-a96d321f52e7",
@@ -1309,7 +1491,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 65,
-    "使用症例": "眼の異物感"
+    "使用症例": "眼の異物感",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 65
   },
   {
     "id": "164cd9fe-a7cc-46ff-8929-260af79d7e5a",
@@ -1338,7 +1524,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 69,
-    "使用症例": "肩こり・頭重感"
+    "使用症例": "肩こり・頭重感",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 69
   },
   {
     "id": "70eab2b3-a449-4c71-a97b-fd2d8f1567fe",
@@ -1367,7 +1557,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 106,
-    "使用症例": "完全房室ブロック合併下壁STEMI"
+    "使用症例": "完全房室ブロック合併下壁STEMI",
+    "????": "???",
+    "???????": "[\"ICU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 106
   },
   {
     "id": "4adc8d86-489c-4cf4-978f-2ee0c6c6e64a",
@@ -1396,7 +1590,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 112,
-    "使用症例": "右緊張性気胸・フレイルチェスト"
+    "使用症例": "右緊張性気胸・フレイルチェスト",
+    "????": "???",
+    "???????": "[\"EU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 112
   },
   {
     "id": "9ed296f2-3cde-4c82-a409-c5791118e2d7",
@@ -1425,7 +1623,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 5,
-    "使用症例": "クラッシュ症候群"
+    "使用症例": "クラッシュ症候群",
+    "????": "???",
+    "???????": "[\"ICU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 5
   },
   {
     "id": "5c5e70da-7efd-47b9-b607-78a36545deea",
@@ -1454,7 +1656,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 117,
-    "使用症例": "シートベルト外傷（腹部）"
+    "使用症例": "シートベルト外傷（腹部）",
+    "????": "???",
+    "???????": "[\"EU\"]",
+    "?????": "[\"??\"]",
+    "??ID": 117
   },
   {
     "id": "5cd1c717-9a7c-4ef2-a4ab-94a7601eefde",
@@ -1483,7 +1689,11 @@ const sourcePatients = [
     "診療ゾーン": "[\"軽症\"]",
     "氏名": "フリー",
     "原本ID": 114,
-    "使用症例": "頸椎捻挫"
+    "使用症例": "頸椎捻挫",
+    "????": "??",
+    "???????": "[\"??\"]",
+    "?????": "[\"??\"]",
+    "??ID": 114
   },
   {
     "id": "d89b5fdd-f37e-4308-9ecd-e4bd6e0fb614",
@@ -1512,52 +1722,70 @@ const sourcePatients = [
     "診療ゾーン": "[\"救外\"]",
     "氏名": "フリー",
     "原本ID": 103,
-    "使用症例": "右下腿開放骨折"
+    "使用症例": "右下腿開放骨折",
+    "????": "???",
+    "???????": "[\"EU\",\"???\"]",
+    "?????": "[\"??\"]",
+    "??ID": 103
   }
 ];
 
-export const patients: Patient[] = sourcePatients.map((source) => {
-  const method = {"救急車":"ambulance","乗用車":"car","徒歩":"walk"}[source["来院方法"]] as ArrivalMethod;
-  const triage = {"赤":"red","黄":"yellow","緑":"green"}[source["想定トリアージ"]] as Triage;
-  const zones = parseStringArray(source["診療ゾーン"]);
-  const destination = parseStringArray(source["予想される転帰"]).join(" / ");
-  const opeAg = parseStringArray(source["OPE/AG"]).join(" / ");
-  const rescueNarrative = method === "ambulance" ? source["トリアージ・所見"] : null;
+export const patients: Patient[] = notionCases.map((source) => {
+  const methodMap: Record<string, ArrivalMethod> = {"救急車":"ambulance","乗用車":"car","徒歩":"walk"};
+  const triageMap: Record<string, Triage> = {"赤":"red","黄":"yellow","緑":"green"};
+  const method = methodMap[source.method];
+  const triage = triageMap[source.expectedTriage];
+  const zones = parseStringArray(source.clinicalZones);
+  const destination = parseStringArray(source.destination).join(" / ");
+  const opeAg = parseStringArray(source.opeAg).join(" / ");
+  const triageFindings = source.primaryTriageFindings;
+  const initialVitals = source.initialVitals;
+  const rescueVitals = source.rescueVitals || (method === "ambulance" ? initialVitals : null);
+  const rescueNarrative = method === "ambulance" ? triageFindings : null;
+  const controller = controllerCaseByPatientId.get(source.id);
 
   return {
-    id: Number(source["userDefined:ID"]),
-    name: source["使用症例"],
-    patientName: source["氏名"] || "",
-    arrival: source["来院時刻"],
-    arrivalMinute: toMinute(source["来院時刻"]),
+    id: source.id,
+    name: source.name,
+    patientName: source.patientName,
+    arrival: source.arrival,
+    arrivalMinute: toMinute(source.arrival),
     method,
     triage,
     expectedZone: zones.includes("救外") ? "er" : "light",
     destination,
-    ageSex: source["年齢・性別"] || "",
-    history: source["症例概要"] || "",
+    ageSex: source.ageSex,
+    history: source.overview,
     ambulanceInfo: rescueNarrative,
-    triageFindings: source["トリアージ・所見"] || "",
-    vitals: source["バイタル"] || "",
-    exam: source["診察所見"] || "",
-    tests: source["検査所見"] || "",
-    scenario: source["シナリオ想定"] || "",
-    treatment: source["想定される治療"] || "",
+    rescueVitals,
+    triageFindings,
+    vitals: initialVitals,
+    exam: source.exam,
+    tests: source.tests,
+    scenario: source.overview,
+    treatment: source.treatment,
     opeAg,
-    additionalEvent: source["追加イベント"] || "",
-    controllerInstruction: source["コントローラー指示"] || "",
-    actingPoints: source["演技ポイント"] || "",
-    focus: source["重点訓練ポイント"] || "",
-    moulage: source["ムラージュ"] || "",
-    originalId: source["原本ID"] == null ? "" : String(source["原本ID"]),
-    originalCase: source["原本症例"] || "",
+    additionalEvent: source.additionalEvent,
+    controllerInstruction: source.controllerInstruction,
+    controllerChecklist: source.controllerChecklist,
+    actingPoints: source.actingPoints,
+    focus: source.focus,
+    learningPoints: source.learningPoints,
+    branchConditions: source.branchConditions,
+    moulage: source.moulage,
+    originalId: source.originalId,
+    originalCase: source.originalCase,
+    controllerMediaGuide: controller?.mediaGuide ?? "",
+    controllerEscalationGuide: controller?.escalationGuide ?? "",
+    controllerEscalationWindow: controller?.escalationWindow ?? "",
   };
 });
 
 export const zoneLabels: Record<ZoneId, string> = {
   scheduled: "来院前",
   ambulance: "救急車搬入口",
-  walkin: "乗用車・徒歩",
+  walkin: "車内待機",
+  vehicle: "車内待機",
   triage: "一次トリアージ",
   "er-severe": "ER 重症ベッド",
   "er-moderate": "ER 中等症ベッド",
@@ -1568,6 +1796,8 @@ export const zoneLabels: Record<ZoneId, string> = {
   "light-imaging": "軽症用画像検査室",
   transit: "ストレッチャー搬送中",
   or: "手術室",
+  ag: "AG室",
+  general: "一般床",
   icu: "ICU",
   eu: "EU",
   complete: "帰宅・その他転帰",

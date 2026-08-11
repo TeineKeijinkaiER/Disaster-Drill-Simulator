@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>コントローラー配布資料 見本</title>
+  <style>
+    @page { size: A4 landscape; margin: 8mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #e6edf5; color: #172b4d; font-family: "Yu Gothic", "Meiryo", sans-serif; }
+    .sheet { width: 281mm; height: 194mm; margin: 8mm auto; padding: 7mm; background: #fff; page-break-after: always; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 5px 20px #0f17252e; }
+    .sheet:last-child { page-break-after: auto; }
+    .eyebrow { color: #486581; font-size: 9pt; font-weight: 700; }
+    h1 { margin: 1mm 0; color: #102a43; font-size: 23pt; line-height: 1.15; }
+    .lead { margin: 0 0 3mm; color: #526579; font-size: 10pt; }
+    main { display: grid; grid-template-columns: 27% 39% 34%; gap: 3mm; flex: 1; min-height: 0; }
+    .phase { padding: 3mm; border: 1px solid #cbd5e1; border-top: 4px solid #1976d2; overflow: hidden; }
+    .care { border-top-color: #0f766e; background: #f7fffc; }
+    .event { border-top-color: #c2415d; background: #fff8f9; }
+    .phase-header { display: flex; align-items: center; gap: 2mm; padding-bottom: 2mm; border-bottom: 1px solid #d9e2ec; }
+    .num { color: #1976d2; font-size: 17pt; font-weight: 700; }
+    .care .num { color: #0f766e; }
+    .event .num { color: #c2415d; }
+    h2 { margin: 0; font-size: 13pt; line-height: 1.15; }
+    time { display: inline-block; margin: 2mm 0; padding: .8mm 2mm; background: #e9f2fb; color: #334e68; font-size: 9pt; font-weight: 700; }
+    .event time { background: #ffe9ed; }
+    .step { margin: 0 0 2.5mm; }
+    .step strong { display: block; margin-bottom: 1mm; padding: 1mm 1.5mm; background: #dce8f4; border-left: 3px solid #486581; color: #243b53; font-size: 9pt; letter-spacing: 0; }
+    .step p { margin: 0; font-size: 9.5pt; line-height: 1.48; }
+    .actor { padding: 2mm; background: #edf7f8; border-left: 3px solid #0f766e; }
+    .actor strong { color: #0f4c5c; }
+    .event .actor { background: #fff0f3; border-left-color: #c2415d; }
+    .event .actor strong { color: #9f1239; }
+    .media { padding: 2mm; border-left: 4px solid #b7791f; background: #fff8e8; }
+    .media strong { background: #ffe8ad; border-left-color: #b7791f; color: #744210; }
+    .checks { margin: 0; padding-left: 4mm; font-size: 8.8pt; line-height: 1.48; }
+    aside { display: grid; grid-template-columns: 28mm 1fr; gap: 3mm; margin-top: 3mm; padding: 2.5mm 3mm; min-height: 22mm; background: #f1f5f9; border-left: 4px solid #486581; font-size: 8.5pt; line-height: 1.42; }
+    aside strong { color: #334e68; }
+    footer { margin-top: 2mm; padding-top: 1mm; border-top: 1px solid #d9e2ec; color: #7b8794; font-size: 7pt; }
+    @media print { .sheet { margin: 0; box-shadow: none; } }
+  </style>
+</head>
+<body>
+  <article class="sheet">
+    <header>
+      <div class="eyebrow">2026 災害訓練　コントローラー配布資料（見本）</div>
+      <h1>症例1｜左血気胸・多発肋骨骨折</h1>
+      <p class="lead">到着 10:05　救急車搬送　救外ゾーン</p>
+    </header>
+    <main>
+      <section class="phase">
+        <div class="phase-header"><span class="num">01</span><h2>到着・一次評価</h2></div>
+        <time>0-3分</time>
+        <div class="step">
+          <strong>コントローラー：到着時に提示</strong>
+          <p>救急車で到着。BP 78/52、HR 122、SpO2 85%（酸素後 90%）、RR 40。左胸部痛、呼吸困難、左呼吸音減弱、顔面蒼白。</p>
+        </div>
+        <div class="step actor">
+          <strong>傷病者役</strong>
+          <p>左胸部を押さえて浅く速く呼吸する。短い単語でのみ返答。横になることを嫌がり、座位を希望する。</p>
+        </div>
+      </section>
+      <section class="phase care">
+        <div class="phase-header"><span class="num">02</span><h2>初療から治療へ</h2></div>
+        <time>3-12分</time>
+        <div class="step">
+          <strong>3分：初療で提示</strong>
+          <p>左胸部圧痛と呼吸苦。CTで左血気胸・多発肋骨骨折。胸腔ドレーン初期排液 1000 mL、以後 150 mL/h。</p>
+        </div>
+        <div class="step media">
+          <strong>QRコードで提示：モニター・CT</strong>
+          <p>モニター装着を依頼されたら、モニター画面のQRコードを提示する。CT撮影を決定したら、CT画像のQRコードを提示して画像確認を促す。</p>
+        </div>
+        <div class="step">
+          <strong>5-10分：判断を促す</strong>
+          <p>高流量酸素、胸腔ドレーン、早期輸血を開始できたか確認。150 mL/hの持続出血を受け、呼吸器外科へコンサルトし、ICUで経過観察する判断を促す。</p>
+        </div>
+        <div class="step">
+          <strong>確認</strong>
+          <ul class="checks">
+            <li>排液量を記録し、輸血を開始する</li>
+            <li>呼吸器外科、ICU、本部へ連絡する</li>
+            <li>ICU入室後も出血量を再評価する</li>
+          </ul>
+        </div>
+      </section>
+      <section class="phase event">
+        <div class="phase-header"><span class="num">03</span><h2>急変・追加設定</h2></div>
+        <time>12-20分</time>
+        <div class="step">
+          <strong>12分：追加イベント</strong>
+          <p>症例2が乗用車で来院する。初療ベッド配分と赤症例の優先順位を確認する。</p>
+        </div>
+        <div class="step">
+          <strong>ICU入室後</strong>
+          <p>排液・出血量の増加、血圧低下、呼吸状態悪化を数値で提示。ICUから手術室へ搬送し、開胸止血を行う判断を促す。</p>
+        </div>
+        <div class="step actor">
+          <strong>傷病者役</strong>
+          <p>初療後は呼吸がやや楽になる。ICU入室後の急変は、傷病者役ではなくコントローラーが数値で提示する。</p>
+        </div>
+      </section>
+    </main>
+    <aside><strong>固定情報・備考</strong><div>ムラージュ：不要　｜　想定される転帰：ICU　｜　学習ポイント：持続出血では輸血・ドレーン管理と反復評価を行い、呼吸器外科へコンサルトする。ICU入室後に出血量が増大したら手術室へ搬送して開胸止血する。</div></aside>
+    <footer>本体症例は Notion「災害訓練 使用症例」とリンク　｜　見本資料</footer>
+  </article>
+
+  <article class="sheet">
+    <header>
+      <div class="eyebrow">2026 災害訓練　コントローラー配布資料（見本）</div>
+      <h1>症例2｜不安定型骨盤骨折</h1>
+      <p class="lead">到着 10:08　乗用車1　救外ゾーン</p>
+    </header>
+    <main>
+      <section class="phase">
+        <div class="phase-header"><span class="num">01</span><h2>到着・一次評価</h2></div>
+        <time>0-3分</time>
+        <div class="step">
+          <strong>コントローラー：到着時に提示</strong>
+          <p>乗用車で到着。一見歩けそうに見えるが立位保持困難。RR 30、脈拍 140、橈骨動脈は触れにくい。冷汗、JCS 30、簡単な指示に従えない。</p>
+        </div>
+        <div class="step actor">
+          <strong>傷病者役</strong>
+          <p>刺激で開眼するがすぐ閉眼する。意味のある会話は困難。左骨盤部に触れられると痛みで反応する。</p>
+        </div>
+      </section>
+      <section class="phase care">
+        <div class="phase-header"><span class="num">02</span><h2>初療から治療へ</h2></div>
+        <time>3-12分</time>
+        <div class="step">
+          <strong>3分：初療で提示</strong>
+          <p>BP 74/42、HR 140。顔面蒼白、冷汗、左骨盤部の圧痛・変形。画像で不安定型骨盤骨折を提示する。</p>
+        </div>
+        <div class="step media">
+          <strong>QRコードで提示：モニター・骨盤画像</strong>
+          <p>モニター装着を依頼されたら、モニター画面のQRコードを提示する。骨盤X線またはCT撮影を決定したら、画像のQRコードを提示して確認を促す。</p>
+        </div>
+        <div class="step">
+          <strong>5-10分：判断を促す</strong>
+          <p>歩行可能に見えてもトリアージアップして救外へ誘導する。サムスリング、輸液・輸血、AG室へのTAE依頼を促す。</p>
+        </div>
+        <div class="step">
+          <strong>確認</strong>
+          <ul class="checks">
+            <li>骨盤動揺性の反復診察を避ける</li>
+            <li>大量輸血を開始し、TAE搬送を調整する</li>
+            <li>TAE後に再評価し、ICUを依頼する</li>
+          </ul>
+        </div>
+      </section>
+      <section class="phase event">
+        <div class="phase-header"><span class="num">03</span><h2>急変・追加設定</h2></div>
+        <time>12-20分</time>
+        <div class="step">
+          <strong>TAE後に提示</strong>
+          <p>BP 80/50、HR 130、Hb 7.2、乳酸 5.0。輸血継続、骨盤内パッキング・創外固定の検討、ICU入室を判断させる。</p>
+        </div>
+        <div class="step">
+          <strong>遅れた場合</strong>
+          <p>BP 60台、HR 150。後腹膜出血の進行と循環虚脱を数値で提示する。演技は追加しない。</p>
+        </div>
+        <div class="step actor">
+          <strong>傷病者役</strong>
+          <p>急変以降は傷病者役の演技を増やさず、モニター値・検査値の変化で進行する。</p>
+        </div>
+      </section>
+    </main>
+    <aside><strong>固定情報・備考</strong><div>ムラージュ：不要　｜　想定される転帰：ICU / EU　｜　学習ポイント：不安定型骨盤骨折では骨盤の外固定と早期止血が重要。TAE後も循環が不安定なら再出血・他部位出血を検索し、ICUで輸血を継続する。</div></aside>
+    <footer>本体症例は Notion「災害訓練 使用症例」とリンク　｜　見本資料</footer>
+  </article>
+</body>
+</html>

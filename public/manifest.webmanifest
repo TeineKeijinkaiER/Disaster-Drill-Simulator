@@ -1,0 +1,17 @@
+{
+  "name": "Disaster Tabletop Simulator",
+  "short_name": "Disaster Sim",
+  "description": "Hospital disaster training tabletop simulator.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#eef1ed",
+  "theme_color": "#24584a",
+  "icons": [
+    {
+      "src": "/app-icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
