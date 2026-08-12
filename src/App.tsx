@@ -213,13 +213,19 @@ function App() {
     setEvents((current) => [...current, { id: createId("event"), type, label, patientId, atSeconds: clockSeconds }]);
   }, [clockSeconds]);
 
-  const ensureAudioContext = useCallback(async () => {
+  const getAudioContext = useCallback(() => {
     const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextClass) return null;
     if (!audioContextRef.current) audioContextRef.current = new AudioContextClass();
-    if (audioContextRef.current.state !== "running") await audioContextRef.current.resume();
     return audioContextRef.current;
   }, []);
+
+  const ensureAudioContext = useCallback(async () => {
+    const context = getAudioContext();
+    if (!context) return null;
+    if (context.state !== "running") await context.resume();
+    return context;
+  }, [getAudioContext]);
 
   const resetBgm = useCallback(() => {
     if (bgmTimerRef.current !== null) window.clearInterval(bgmTimerRef.current);
@@ -231,11 +237,14 @@ function App() {
     bgmModeRef.current = null;
   }, []);
 
-  const startBgm = useCallback(async (mode?: BgmMode, force = false) => {
+  const startBgm = useCallback((mode?: BgmMode, force = false) => {
     if (!bgmEnabled && !force) return;
     const requestedMode = mode ?? (showOpening ? "opening" : "training");
-    const context = await ensureAudioContext().catch(() => null);
-    if (!context || context.state !== "running") return;
+    const context = getAudioContext();
+    if (!context) return;
+
+    // PWA browsers require this resume call and the first scheduled sound to share a user gesture.
+    if (context.state !== "running") void context.resume().catch(() => undefined);
     if (bgmTimerRef.current !== null) {
       if (bgmModeRef.current === requestedMode) return;
       resetBgm();
@@ -279,7 +288,7 @@ function App() {
 
     schedulePattern();
     bgmTimerRef.current = window.setInterval(schedulePattern, requestedMode === "opening" ? 3800 : 4000);
-  }, [bgmEnabled, ensureAudioContext, resetBgm, showOpening]);
+  }, [bgmEnabled, getAudioContext, resetBgm, showOpening]);
 
   const playMoveSound = useCallback(async () => {
     const context = await ensureAudioContext();
@@ -801,12 +810,14 @@ function App() {
   const addMinutes = (minutes: number) => advanceTime(minutes * 60);
 
   const beginTraining = () => {
-    void ensureAudioContext().then(() => {
-      if (bgmEnabled) void startBgm("training", true);
-    });
+    if (bgmEnabled) startBgm("training", true);
     setShowOpening(false);
     setRunning(true);
     recordEvent("training_started", "訓練を開始");
+  };
+
+  const activateAudio = () => {
+    if (bgmEnabled) startBgm(showOpening ? "opening" : "training", true);
   };
 
   const zonesInMap: Array<{ id: ZoneId; title: string; icon: typeof Hospital; className: string; capacity?: number }> = [
@@ -829,9 +840,10 @@ function App() {
       bgmEnabled={bgmEnabled}
       onScenarioChange={changeScenario}
       onCapacityChange={setCapacity}
+      onAudioActivate={activateAudio}
       onBgmPlay={() => {
         setBgmEnabled(true);
-        void startBgm("opening", true);
+        startBgm("opening", true);
       }}
       onStart={beginTraining}
     />;
@@ -839,7 +851,7 @@ function App() {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd} onDragCancel={() => setDragOverZone(null)}>
-    <div className="app projection">
+    <div className="app projection" onPointerDownCapture={activateAudio}>
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark"><Hospital size={22} /></div>
@@ -859,18 +871,21 @@ function App() {
           <strong>{formatClock(clockSeconds)}</strong>
           <span className="scenario-badge">{scenario.name} {scenario.durationMinutes}分</span>
           <span className="remaining-time">残り {Math.ceil(remainingSeconds / 60)}分</span>
-          <span className="score-pill">Score {totalScore}</span>
           <span className="goal-pill">Goal {completedPatients}/50</span>
           {activeDeteriorations > 0 && <span className="acute-counter">急変 {activeDeteriorations}</span>}
           <button className="speed-badge" onClick={() => setSpeed((value) => value === 1 ? 2 : 1)} title="進行速度を変更">{speed}x</button>
           <button className="small-button" onClick={() => addMinutes(1)}>+1分</button>
           <button className="small-button" onClick={() => addMinutes(5)}>+5分</button>
         </div>
+        <div className="total-score" aria-label={`合計スコア ${totalScore}点 / 100点`}>
+          <span>合計スコア</span>
+          <strong>{totalScore}<small>/100</small></strong>
+        </div>
         <div className="top-actions">
           <button className={`icon-button ${bgmEnabled ? "active" : ""}`} onClick={() => {
             const nextEnabled = !bgmEnabled;
             setBgmEnabled(nextEnabled);
-            if (nextEnabled) void startBgm(showOpening ? "opening" : "training", true);
+            if (nextEnabled) startBgm(showOpening ? "opening" : "training", true);
             if (!nextEnabled) stopBgm();
           }} title={bgmEnabled ? "BGMを停止" : "BGMを再生"}>{bgmEnabled ? <Volume2 /> : <VolumeX />}</button>
           <button className={`icon-button ${showScore ? "active" : ""}`} onClick={() => setShowScore((value) => !value)} title="スコアと履歴"><Trophy /></button>
@@ -1066,6 +1081,7 @@ function OpeningScreen({
   bgmEnabled,
   onScenarioChange,
   onCapacityChange,
+  onAudioActivate,
   onBgmPlay,
   onStart,
 }: {
@@ -1074,14 +1090,16 @@ function OpeningScreen({
   bgmEnabled: boolean;
   onScenarioChange: (id: ScenarioId) => void;
   onCapacityChange: (capacity: CapacitySettings) => void;
+  onAudioActivate: () => void;
   onBgmPlay: () => void;
   onStart: () => void;
 }) {
   const selectedScenario = scenarioById(scenarioId);
-  return <main className="opening-screen">
+  return <main className="opening-screen" onPointerDownCapture={onAudioActivate}>
     <div className="opening-visual" aria-hidden="true"><img src={`${import.meta.env.BASE_URL}opening-hospital.png`} alt="" /></div>
     <div className="opening-shade" />
     <section className="opening-hero">
+      <div className="opening-total-score" aria-label="合計スコア 100点 / 100点"><span>合計スコア</span><strong>100<small>/100</small></strong></div>
       <div className="opening-brand"><span><Hospital size={21} /></span><strong>災害机上訓練</strong></div>
       <p className="opening-kicker">HOSPITAL DISASTER TABLETOP SIMULATOR</p>
       <h1>多数傷病者受入<br />シミュレーション</h1>
