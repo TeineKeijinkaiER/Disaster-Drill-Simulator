@@ -96,6 +96,8 @@ interface CapacitySettings {
   erModerateExisting: number;
 }
 
+type BgmMode = "opening" | "training";
+
 const START_MINUTE = 10 * 60;
 const STORAGE_KEY = "disaster-tabletop-v11";
 
@@ -188,6 +190,7 @@ function App() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const bgmTimerRef = useRef<number | null>(null);
   const bgmNodesRef = useRef<OscillatorNode[]>([]);
+  const bgmModeRef = useRef<BgmMode | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const scenario = useMemo(() => scenarioById(scenarioId), [scenarioId]);
   const elapsedSeconds = clockSeconds - START_MINUTE * 60;
@@ -218,11 +221,26 @@ function App() {
     return audioContextRef.current;
   }, []);
 
-  const startBgm = useCallback(async () => {
-    if (!bgmEnabled) return;
-    const context = await ensureAudioContext();
+  const resetBgm = useCallback(() => {
+    if (bgmTimerRef.current !== null) window.clearInterval(bgmTimerRef.current);
+    bgmTimerRef.current = null;
+    bgmNodesRef.current.forEach((node) => {
+      try { node.stop(); } catch { /* already stopped */ }
+    });
+    bgmNodesRef.current = [];
+    bgmModeRef.current = null;
+  }, []);
+
+  const startBgm = useCallback(async (mode?: BgmMode, force = false) => {
+    if (!bgmEnabled && !force) return;
+    const requestedMode = mode ?? (showOpening ? "opening" : "training");
+    const context = await ensureAudioContext().catch(() => null);
     if (!context || context.state !== "running") return;
-    if (bgmTimerRef.current !== null) return;
+    if (bgmTimerRef.current !== null) {
+      if (bgmModeRef.current === requestedMode) return;
+      resetBgm();
+    }
+    bgmModeRef.current = requestedMode;
 
     const scheduleTone = (frequency: number, start: number, duration: number, volume: number, type: OscillatorType) => {
       const oscillator = context.createOscillator();
@@ -231,7 +249,7 @@ function App() {
       oscillator.type = type;
       oscillator.frequency.setValueAtTime(frequency, start);
       filter.type = "lowpass";
-      filter.frequency.setValueAtTime(1500, start);
+      filter.frequency.setValueAtTime(2200, start);
       gain.gain.setValueAtTime(0.0001, start);
       gain.gain.exponentialRampToValueAtTime(volume, start + 0.025);
       gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
@@ -245,23 +263,23 @@ function App() {
 
     const schedulePattern = () => {
       const now = context.currentTime + 0.06;
-      if (showOpening) {
+      if (requestedMode === "opening") {
         const lead = [261.63, 329.63, 392, 493.88, 523.25, 659.25, 587.33, 493.88];
-        lead.forEach((note, index) => scheduleTone(note, now + index * 0.46, 0.42, 0.028, "triangle"));
-        [65.41, 73.42, 87.31, 98].forEach((note, index) => scheduleTone(note, now + index * 0.92, 0.8, 0.035, "sine"));
+        lead.forEach((note, index) => scheduleTone(note, now + index * 0.46, 0.42, 0.055, "triangle"));
+        [65.41, 73.42, 87.31, 98].forEach((note, index) => scheduleTone(note, now + index * 0.92, 0.8, 0.06, "sine"));
       } else {
         const pulse = [65.41, 65.41, 73.42, 65.41, 87.31, 73.42, 65.41, 98];
         pulse.forEach((note, index) => {
           const start = now + index * 0.5;
-          scheduleTone(note, start, 0.3, 0.038, "sine");
-          if (index % 2 === 1) scheduleTone(note * 4, start + 0.14, 0.12, 0.012, "triangle");
+          scheduleTone(note, start, 0.3, 0.07, "sine");
+          if (index % 2 === 1) scheduleTone(note * 4, start + 0.14, 0.12, 0.028, "triangle");
         });
       }
     };
 
     schedulePattern();
-    bgmTimerRef.current = window.setInterval(schedulePattern, showOpening ? 3800 : 4000);
-  }, [bgmEnabled, ensureAudioContext, showOpening]);
+    bgmTimerRef.current = window.setInterval(schedulePattern, requestedMode === "opening" ? 3800 : 4000);
+  }, [bgmEnabled, ensureAudioContext, resetBgm, showOpening]);
 
   const playMoveSound = useCallback(async () => {
     const context = await ensureAudioContext();
@@ -342,19 +360,15 @@ function App() {
   }, []);
 
   const stopBgm = useCallback(() => {
-    if (bgmTimerRef.current !== null) window.clearInterval(bgmTimerRef.current);
-    bgmTimerRef.current = null;
-    bgmNodesRef.current.forEach((node) => {
-      try { node.stop(); } catch { /* already stopped */ }
-    });
-    bgmNodesRef.current = [];
-  }, []);
+    resetBgm();
+  }, [resetBgm]);
 
   useEffect(() => {
-    if (bgmEnabled) void startBgm();
-    else stopBgm();
-    return stopBgm;
+    if (!bgmEnabled) stopBgm();
+    if (bgmEnabled && !showOpening && bgmModeRef.current === "opening") void startBgm("training");
   }, [bgmEnabled, showOpening, startBgm, stopBgm]);
+
+  useEffect(() => stopBgm, [stopBgm]);
 
   useEffect(() => {
     if (!workflowNotice) return;
@@ -611,7 +625,7 @@ function App() {
     }
     if ((state.zone === "er-imaging" || state.zone === "light-imaging") && !state.imagingCompleted) return;
     const leavingErCare = (state.zone === "er-severe" || state.zone === "er-moderate")
-      && target !== "er-severe" && target !== "er-moderate";
+      && target !== "er-severe" && target !== "er-moderate" && !target.startsWith("light-");
     if (leavingErCare) {
       const applied = state.appliedTreatments ?? [];
       const missing = ["モニター装着", "末梢ルート確保"].filter((option) => !applied.includes(option as TreatmentOption));
@@ -787,8 +801,9 @@ function App() {
   const addMinutes = (minutes: number) => advanceTime(minutes * 60);
 
   const beginTraining = () => {
-    void ensureAudioContext();
-    if (bgmEnabled) void startBgm();
+    void ensureAudioContext().then(() => {
+      if (bgmEnabled) void startBgm("training", true);
+    });
     setShowOpening(false);
     setRunning(true);
     recordEvent("training_started", "訓練を開始");
@@ -804,7 +819,7 @@ function App() {
     { id: "light-secondary", title: "二次トリアージ", icon: Stethoscope, className: "light-zone" },
     { id: "light-wait", title: "軽症 診察待合", icon: UsersRound, className: "light-zone" },
     { id: "light-imaging", title: "軽症用画像検査室", icon: ScanLine, className: "imaging-zone" },
-    { id: "transit", title: "ストレッチャー搬送中", icon: Clock3, className: "transit-zone" },
+    { id: "transit", title: "外来間移動", icon: Clock3, className: "transit-zone" },
   ];
 
   if (showOpening) {
@@ -814,7 +829,10 @@ function App() {
       bgmEnabled={bgmEnabled}
       onScenarioChange={changeScenario}
       onCapacityChange={setCapacity}
-      onBgmChange={setBgmEnabled}
+      onBgmPlay={() => {
+        setBgmEnabled(true);
+        void startBgm("opening", true);
+      }}
       onStart={beginTraining}
     />;
   }
@@ -852,7 +870,7 @@ function App() {
           <button className={`icon-button ${bgmEnabled ? "active" : ""}`} onClick={() => {
             const nextEnabled = !bgmEnabled;
             setBgmEnabled(nextEnabled);
-            if (nextEnabled) void startBgm();
+            if (nextEnabled) void startBgm(showOpening ? "opening" : "training", true);
             if (!nextEnabled) stopBgm();
           }} title={bgmEnabled ? "BGMを停止" : "BGMを再生"}>{bgmEnabled ? <Volume2 /> : <VolumeX />}</button>
           <button className={`icon-button ${showScore ? "active" : ""}`} onClick={() => setShowScore((value) => !value)} title="スコアと履歴"><Trophy /></button>
@@ -1012,7 +1030,7 @@ function App() {
                   {imagingAvailable && <section className="information-stage imaging-result-stage"><span>検査・画像結果</span><div className="result-source"><strong>検査・画像</strong><span>QRコード提示相当</span></div><DetailBlock label="CT・XP・検査所見" value={selectedPatient.tests} prominent /></section>}
                 </div>
                 {selectedState.zone === "transit" && (
-                  <div className="transit-status"><Clock3 /><div><span>ストレッチャー搬送中</span><strong>残り {Math.ceil((selectedState.transitRemaining ?? 0) / 60)}分</strong></div></div>
+                  <div className="transit-status"><Clock3 /><div><span>外来間移動</span><strong>残り {Math.ceil((selectedState.transitRemaining ?? 0) / 60)}分</strong></div></div>
                 )}
               </>
             ) : (
@@ -1048,7 +1066,7 @@ function OpeningScreen({
   bgmEnabled,
   onScenarioChange,
   onCapacityChange,
-  onBgmChange,
+  onBgmPlay,
   onStart,
 }: {
   scenarioId: ScenarioId;
@@ -1056,7 +1074,7 @@ function OpeningScreen({
   bgmEnabled: boolean;
   onScenarioChange: (id: ScenarioId) => void;
   onCapacityChange: (capacity: CapacitySettings) => void;
-  onBgmChange: (enabled: boolean) => void;
+  onBgmPlay: () => void;
   onStart: () => void;
 }) {
   const selectedScenario = scenarioById(scenarioId);
@@ -1069,7 +1087,7 @@ function OpeningScreen({
       <h1>多数傷病者受入<br />シミュレーション</h1>
       <p className="opening-lead">状況を見極め、受入れの流れをつくる。</p>
       <button className="opening-start" onClick={onStart}><CirclePlay size={20} />訓練を開始</button>
-      <button className="opening-audio" onClick={() => onBgmChange(!bgmEnabled)}>{bgmEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}{bgmEnabled ? "オープニングBGM：オン" : "オープニングBGM：オフ"}</button>
+      <button className="opening-audio" onClick={onBgmPlay}>{bgmEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}{bgmEnabled ? "オープニングBGMを再生" : "オープニングBGMをオン"}</button>
     </section>
 
     <section className="opening-options" aria-label="訓練開始前の設定">

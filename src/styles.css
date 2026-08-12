@@ -139,11 +139,12 @@ button { cursor: pointer; }
 
 .zone, .destination { min-height: 102px; padding: 10px; background: #fff; border: 1px solid #cfd9d3; border-radius: 6px; box-shadow: 0 2px 7px rgba(35,50,43,.045); }
 .zone.drag-over, .destination.drag-over { border-color: #1f7a5c; background: #e8f5ef; box-shadow: 0 0 0 3px rgba(31,122,92,.18); }
-.zone-head { display: flex; align-items: center; gap: 6px; color: #41564d; }
-.zone-head strong { font-size: 10px; line-height: 1.35; word-break: keep-all; }
+.zone-head { min-width: 0; display: flex; align-items: center; gap: 6px; color: #41564d; }
+.zone-head strong { min-width: 0; font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; word-break: keep-all; }
 .zone-head span { margin-left: auto; padding: 2px 5px; background: #edf2ef; border-radius: 3px; color: #5f7268; font-size: 9px; font-weight: 800; }
 .arrival-zone { border-top: 3px solid #558578; }.triage-zone { border-top: 3px solid #d1a12d; }.er-zone { border-left: 3px solid #a84747; }
 .light-zone { border-left: 3px solid #4d8c67; }.imaging-zone { min-height: 108px; border-top: 3px solid #3c789b; background: #f5fafc; }.transit-zone { align-self: center; min-height: 156px; border: 2px dashed #b07b36; background: #fffaf0; }
+.transit-zone .zone-head strong { font-size: 11px; }
 .room-zone { min-height: 118px; }.room-zone.closed { opacity: .42; background: #e5e8e5; }
 .token-bed { min-height: 38px; display: flex; align-content: flex-start; flex-wrap: wrap; gap: 5px; padding-top: 8px; }
 .empty-label { align-self: center; color: #a0a7a3; font-size: 9px; }
