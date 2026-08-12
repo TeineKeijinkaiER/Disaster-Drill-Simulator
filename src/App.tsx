@@ -16,6 +16,7 @@ import {
   BedDouble,
   Car,
   ChevronRight,
+  ClipboardList,
   CirclePause,
   CirclePlay,
   Clock3,
@@ -25,6 +26,7 @@ import {
   RotateCcw,
   ScanLine,
   Settings2,
+  SlidersHorizontal,
   Stethoscope,
   Trophy,
   UserRound,
@@ -95,7 +97,7 @@ interface CapacitySettings {
 }
 
 const START_MINUTE = 10 * 60;
-const STORAGE_KEY = "disaster-tabletop-v10";
+const STORAGE_KEY = "disaster-tabletop-v11";
 
 const defaultRuntime = (scenarioId: ScenarioId): Record<number, PatientRuntime> => {
   const activeIds = new Set(scenarioById(scenarioId).patientIds);
@@ -166,6 +168,7 @@ function isGoalZone(zone: ZoneId) {
 
 function App() {
   const [scenarioId, setScenarioId] = useState<ScenarioId>("standard");
+  const [showOpening, setShowOpening] = useState(true);
   const [clockSeconds, setClockSeconds] = useState(START_MINUTE * 60);
   const [running, setRunning] = useState(false);
   const [speed, setSpeed] = useState<1 | 2>(1);
@@ -183,18 +186,20 @@ function App() {
   const [bgmEnabled, setBgmEnabled] = useState(true);
   const [hydrated, setHydrated] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
-  const bgmStartingRef = useRef(false);
+  const bgmTimerRef = useRef<number | null>(null);
+  const bgmNodesRef = useRef<OscillatorNode[]>([]);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const scenario = useMemo(() => scenarioById(scenarioId), [scenarioId]);
   const elapsedSeconds = clockSeconds - START_MINUTE * 60;
   const remainingSeconds = Math.max(0, scenario.durationMinutes * 60 - elapsedSeconds);
   const scoreTotals = useMemo(() => {
     const totals: Record<ScoreAxis, number> = { triage: 0, clinical: 0, flow: 0, coordination: 0 };
-    for (const entry of scores) totals[entry.axis] += entry.points;
+    for (const entry of scores) {
+      if (entry.points < 0) totals[entry.axis] += entry.points;
+    }
     return totals;
   }, [scores]);
-  const totalScore = Object.values(scoreTotals).reduce((sum, value) => sum + value, 0);
+  const totalScore = Math.max(0, Math.min(100, 100 + Object.values(scoreTotals).reduce((sum, value) => sum + value, 0)));
   const completedPatients = patients.filter((patient) => isGoalZone(runtime[patient.id]?.zone)).length;
   const activeDeteriorations = useMemo(() => scenario.patientIds.filter((id) => {
     const state = runtime[id];
@@ -215,32 +220,48 @@ function App() {
 
   const startBgm = useCallback(async () => {
     if (!bgmEnabled) return;
-    if (bgmStartingRef.current) return;
-    bgmStartingRef.current = true;
-    let audio = bgmAudioRef.current;
-    if (!audio) {
-      audio = document.createElement("audio");
-      audio.src = "/bgm-loop.wav";
-      audio.loop = true;
-      audio.preload = "auto";
-      audio.volume = 0.55;
-      audio.dataset.role = "bgm-audio";
-      audio.style.display = "none";
-      document.body.appendChild(audio);
-      bgmAudioRef.current = audio;
-    }
-    audio.currentTime = 0;
-    audio.muted = false;
-    const playPromise = audio.play();
-    void ensureAudioContext();
-    try {
-      await playPromise;
-    } catch (error) {
-      console.warn("BGM playback was blocked.", error);
-    } finally {
-      bgmStartingRef.current = false;
-    }
-  }, [bgmEnabled, ensureAudioContext]);
+    const context = await ensureAudioContext();
+    if (!context || context.state !== "running") return;
+    if (bgmTimerRef.current !== null) return;
+
+    const scheduleTone = (frequency: number, start: number, duration: number, volume: number, type: OscillatorType) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const filter = context.createBiquadFilter();
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(frequency, start);
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(1500, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(volume, start + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+      oscillator.connect(filter);
+      filter.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(start);
+      oscillator.stop(start + duration + 0.03);
+      bgmNodesRef.current.push(oscillator);
+    };
+
+    const schedulePattern = () => {
+      const now = context.currentTime + 0.06;
+      if (showOpening) {
+        const lead = [261.63, 329.63, 392, 493.88, 523.25, 659.25, 587.33, 493.88];
+        lead.forEach((note, index) => scheduleTone(note, now + index * 0.46, 0.42, 0.028, "triangle"));
+        [65.41, 73.42, 87.31, 98].forEach((note, index) => scheduleTone(note, now + index * 0.92, 0.8, 0.035, "sine"));
+      } else {
+        const pulse = [65.41, 65.41, 73.42, 65.41, 87.31, 73.42, 65.41, 98];
+        pulse.forEach((note, index) => {
+          const start = now + index * 0.5;
+          scheduleTone(note, start, 0.3, 0.038, "sine");
+          if (index % 2 === 1) scheduleTone(note * 4, start + 0.14, 0.12, 0.012, "triangle");
+        });
+      }
+    };
+
+    schedulePattern();
+    bgmTimerRef.current = window.setInterval(schedulePattern, showOpening ? 3800 : 4000);
+  }, [bgmEnabled, ensureAudioContext, showOpening]);
 
   const playMoveSound = useCallback(async () => {
     const context = await ensureAudioContext();
@@ -321,18 +342,19 @@ function App() {
   }, []);
 
   const stopBgm = useCallback(() => {
-    bgmStartingRef.current = false;
-    if (bgmAudioRef.current) {
-      bgmAudioRef.current.pause();
-    }
-    if (audioContextRef.current?.state === "running") void audioContextRef.current.suspend();
+    if (bgmTimerRef.current !== null) window.clearInterval(bgmTimerRef.current);
+    bgmTimerRef.current = null;
+    bgmNodesRef.current.forEach((node) => {
+      try { node.stop(); } catch { /* already stopped */ }
+    });
+    bgmNodesRef.current = [];
   }, []);
 
   useEffect(() => {
-    if (!running && bgmEnabled) void startBgm();
+    if (bgmEnabled) void startBgm();
     else stopBgm();
     return stopBgm;
-  }, [bgmEnabled, running, startBgm, stopBgm]);
+  }, [bgmEnabled, showOpening, startBgm, stopBgm]);
 
   useEffect(() => {
     if (!workflowNotice) return;
@@ -630,9 +652,9 @@ function App() {
         revealedVitals: current[patientId].revealedVitals || target === "light-secondary",
       };
       const nextState = needsTransit
-        ? { ...current[patientId], ...stageUpdates, zone: "transit" as ZoneId, transitTo: target, transitRemaining: 180, zoneEnteredAt: clockSeconds }
+        ? { ...current[patientId], ...stageUpdates, zone: "transit" as ZoneId, transitTo: target, transitRemaining: 240, zoneEnteredAt: clockSeconds }
         : enteringErImaging || enteringLightImaging
-          ? { ...current[patientId], ...stageUpdates, zone: target, transitTo: undefined, transitRemaining: undefined, imagingRemaining: 360, imagingCompleted: false, zoneEnteredAt: clockSeconds }
+          ? { ...current[patientId], ...stageUpdates, zone: target, transitTo: undefined, transitRemaining: undefined, imagingRemaining: 240, imagingCompleted: false, zoneEnteredAt: clockSeconds }
           : { ...current[patientId], ...stageUpdates, zone: target, transitTo: undefined, transitRemaining: undefined, imagingRemaining: undefined, zoneEnteredAt: clockSeconds };
       return { ...current, [patientId]: nextState };
     });
@@ -764,6 +786,14 @@ function App() {
 
   const addMinutes = (minutes: number) => advanceTime(minutes * 60);
 
+  const beginTraining = () => {
+    void ensureAudioContext();
+    if (bgmEnabled) void startBgm();
+    setShowOpening(false);
+    setRunning(true);
+    recordEvent("training_started", "訓練を開始");
+  };
+
   const zonesInMap: Array<{ id: ZoneId; title: string; icon: typeof Hospital; className: string; capacity?: number }> = [
     { id: "ambulance", title: "救急車搬入口", icon: Ambulance, className: "arrival-zone" },
     { id: "walkin", title: "乗用車", icon: Car, className: "arrival-zone" },
@@ -776,6 +806,18 @@ function App() {
     { id: "light-imaging", title: "軽症用画像検査室", icon: ScanLine, className: "imaging-zone" },
     { id: "transit", title: "ストレッチャー搬送中", icon: Clock3, className: "transit-zone" },
   ];
+
+  if (showOpening) {
+    return <OpeningScreen
+      scenarioId={scenarioId}
+      capacity={capacity}
+      bgmEnabled={bgmEnabled}
+      onScenarioChange={changeScenario}
+      onCapacityChange={setCapacity}
+      onBgmChange={setBgmEnabled}
+      onStart={beginTraining}
+    />;
+  }
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd} onDragCancel={() => setDragOverZone(null)}>
@@ -791,8 +833,6 @@ function App() {
         <div className="clock-panel" aria-label="訓練時計">
           <button className="icon-button" onClick={() => {
             const nextRunning = !running;
-            if (!nextRunning && bgmEnabled) void startBgm();
-            if (nextRunning) stopBgm();
             setRunning(nextRunning);
             recordEvent(running ? "clock_paused" : "clock_started", running ? "時計を一時停止" : "訓練を開始");
           }} title={running ? "一時停止" : "開始"}>
@@ -812,7 +852,7 @@ function App() {
           <button className={`icon-button ${bgmEnabled ? "active" : ""}`} onClick={() => {
             const nextEnabled = !bgmEnabled;
             setBgmEnabled(nextEnabled);
-            if (nextEnabled && !running) void startBgm();
+            if (nextEnabled) void startBgm();
             if (!nextEnabled) stopBgm();
           }} title={bgmEnabled ? "BGMを停止" : "BGMを再生"}>{bgmEnabled ? <Volume2 /> : <VolumeX />}</button>
           <button className={`icon-button ${showScore ? "active" : ""}`} onClick={() => setShowScore((value) => !value)} title="スコアと履歴"><Trophy /></button>
@@ -881,7 +921,7 @@ function App() {
                 {zonesInMap.slice(6, 8).map((zone) => <Zone key={zone.id} {...zone} patients={zonePatients(zone.id)} runtime={runtime} onSelect={setSelectedId} dragOver={dragOverZone === zone.id} />)}
                 <div className="subsection-title"><Stethoscope size={15} /><strong>診察室</strong><span>稼働中</span></div>
                 <div className="rooms-grid">
-                  <Zone id="light-room" title="診察室（4人同時）" icon={Stethoscope} className="room-zone" capacity={4} patients={zonePatients("light-room")} runtime={runtime} onSelect={setSelectedId} dragOver={dragOverZone === "light-room"} />
+                  <Zone id="light-room" title="診察室" icon={Stethoscope} className="room-zone" capacity={4} patients={zonePatients("light-room")} runtime={runtime} onSelect={setSelectedId} dragOver={dragOverZone === "light-room"} />
                 </div>
                 <Zone {...zonesInMap[8]} patients={zonePatients("light-imaging")} runtime={runtime} onSelect={setSelectedId} dragOver={dragOverZone === "light-imaging"} />
               </div>
@@ -1000,6 +1040,70 @@ function ScorePanel({ totals, entries, events, totalScore, completedPatients }: 
       {events.length === 0 ? <span>訓練開始後の操作が記録されます</span> : events.slice(-5).reverse().map((event) => <span key={event.id}><time>{formatClock(event.atSeconds)}</time>{event.label}</span>)}
     </div>
   </section>;
+}
+
+function OpeningScreen({
+  scenarioId,
+  capacity,
+  bgmEnabled,
+  onScenarioChange,
+  onCapacityChange,
+  onBgmChange,
+  onStart,
+}: {
+  scenarioId: ScenarioId;
+  capacity: CapacitySettings;
+  bgmEnabled: boolean;
+  onScenarioChange: (id: ScenarioId) => void;
+  onCapacityChange: (capacity: CapacitySettings) => void;
+  onBgmChange: (enabled: boolean) => void;
+  onStart: () => void;
+}) {
+  const selectedScenario = scenarioById(scenarioId);
+  return <main className="opening-screen">
+    <div className="opening-visual" aria-hidden="true"><img src={`${import.meta.env.BASE_URL}opening-hospital.png`} alt="" /></div>
+    <div className="opening-shade" />
+    <section className="opening-hero">
+      <div className="opening-brand"><span><Hospital size={21} /></span><strong>災害机上訓練</strong></div>
+      <p className="opening-kicker">HOSPITAL DISASTER TABLETOP SIMULATOR</p>
+      <h1>多数傷病者受入<br />シミュレーション</h1>
+      <p className="opening-lead">状況を見極め、受入れの流れをつくる。</p>
+      <button className="opening-start" onClick={onStart}><CirclePlay size={20} />訓練を開始</button>
+      <button className="opening-audio" onClick={() => onBgmChange(!bgmEnabled)}>{bgmEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}{bgmEnabled ? "オープニングBGM：オン" : "オープニングBGM：オフ"}</button>
+    </section>
+
+    <section className="opening-options" aria-label="訓練開始前の設定">
+      <div className="opening-option-head"><div><span>TRAINING SETUP</span><h2>開始前設定</h2></div><small>{selectedScenario.name} / {selectedScenario.durationMinutes}分</small></div>
+      <div className="opening-option-grid">
+        <section className="opening-section">
+          <div className="opening-section-title"><ClipboardList size={18} /><div><strong>操作方法</strong><span>患者コマをドラッグして移動</span></div></div>
+          <ol className="opening-steps">
+            <li>時計を開始すると、患者が時刻に応じて来院します。</li>
+            <li>患者コマを次の場所へドラッグします。</li>
+            <li>患者が評価場所へ到達すると、右側に情報が順次表示されます。</li>
+            <li>画像検査室では4分後に検査所見が解放されます。</li>
+          </ol>
+        </section>
+        <section className="opening-section">
+          <div className="opening-section-title"><Trophy size={18} /><div><strong>スコア</strong><span>開始時は100点</span></div></div>
+          <p className="opening-score">未トリアージ、過小トリアージ、急変時の対応遅れなどで減点します。適切な判断や処置は達成履歴として記録され、スコアは100点を上限とします。</p>
+          <div className="opening-score-scale"><span>100</span><i /><span>0</span></div>
+        </section>
+        <section className="opening-section opening-setup-section">
+          <div className="opening-section-title"><SlidersHorizontal size={18} /><div><strong>病床・手術室の初期占有</strong><span>災害発生前の使用数を設定</span></div></div>
+          <div className="opening-scenario-row"><span>訓練時間</span><div>{scenarios.map((item) => <button key={item.id} className={item.id === scenarioId ? "active" : ""} onClick={() => onScenarioChange(item.id)}>{item.durationMinutes}分</button>)}</div></div>
+          <div className="opening-capacity-grid">
+            <NumberSetting label="ER重症" value={capacity.erSevereExisting} max={4} onChange={(value) => onCapacityChange({ ...capacity, erSevereExisting: value })} />
+            <NumberSetting label="ER中等症" value={capacity.erModerateExisting} max={7} onChange={(value) => onCapacityChange({ ...capacity, erModerateExisting: value })} />
+            <NumberSetting label="ICU" value={capacity.icuExisting} max={16} onChange={(value) => onCapacityChange({ ...capacity, icuExisting: value })} />
+            <NumberSetting label="EU" value={capacity.euExisting} max={30} onChange={(value) => onCapacityChange({ ...capacity, euExisting: value })} />
+            <NumberSetting label="OPE室" value={capacity.orGeneralInUse} max={14} onChange={(value) => onCapacityChange({ ...capacity, orGeneralInUse: value })} />
+            <NumberSetting label="AG室" value={capacity.agExisting} max={3} onChange={(value) => onCapacityChange({ ...capacity, agExisting: value })} />
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>;
 }
 
 function Capacity({ label, used, total, tone }: { label: string; used: number; total: number; tone: string }) {
