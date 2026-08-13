@@ -1794,7 +1794,7 @@ export const zoneLabels: Record<ZoneId, string> = {
   "light-wait": "軽症 診察待合",
   "light-room": "軽症 診察室",
   "light-imaging": "軽症用画像検査室",
-  transit: "ストレッチャー搬送中",
+  transit: "外来間移動",
   or: "手術室",
   ag: "AG室",
   general: "一般床",
