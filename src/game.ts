@@ -52,8 +52,6 @@ export type TreatmentOption =
   | "骨盤バインダー"
   | "骨折部の固定"
   | "頭部挙上"
-  | "緊急手術"
-  | "TAE"
   | "鎮痛"
   | "創部処置"
   | "外科コール"
@@ -76,7 +74,7 @@ export interface TreatmentPlan {
 export const treatmentOptions: TreatmentOption[] = [
   "モニター装着", "酸素投与", "気道確保・挿管", "末梢ルート確保", "急速輸液", "輸血",
   "アトロピン投与", "アドレナリン投与", "胸腔ドレーン留置", "骨盤バインダー",
-  "骨折部の固定", "頭部挙上", "緊急手術", "TAE", "鎮痛", "創部処置",
+  "骨折部の固定", "頭部挙上", "鎮痛", "創部処置",
 ];
 
 export const departmentCallOptions: TreatmentOption[] = [
@@ -87,13 +85,13 @@ export const departmentCallOptions: TreatmentOption[] = [
 
 const treatmentPlans: Record<number, TreatmentPlan> = {
   1: { required: ["モニター装着", "酸素投与", "末梢ルート確保", "輸血", "胸腔ドレーン留置", "外科コール", "ICUコール"], deadlineSeconds: 5 * 60, deteriorationMessage: "呼吸・循環状態が悪化。酸素、輸血、胸腔ドレーン、外科・ICUへの連絡が未完了です。" },
-  2: { required: ["モニター装着", "末梢ルート確保", "急速輸液", "輸血", "骨盤バインダー", "TAE", "放射線科コール", "ICUコール"], deadlineSeconds: 6 * 60, deteriorationMessage: "出血性ショックが進行。骨盤固定、輸血、TAEによる止血方針が未完了です。" },
+  2: { required: ["モニター装着", "末梢ルート確保", "急速輸液", "輸血", "骨盤バインダー", "放射線科コール", "ICUコール"], deadlineSeconds: 6 * 60, deteriorationMessage: "出血性ショックが進行。骨盤固定、輸血、放射線科との止血方針が未完了です。" },
   3: { required: ["モニター装着", "気道確保・挿管", "頭部挙上", "脳神経外科コール", "手術室/麻酔科コール", "ICUコール"], deadlineSeconds: 6 * 60, deteriorationMessage: "意識・呼吸状態が悪化。気道保護と脳神経外科・手術室への連絡が未完了です。" },
   5: { required: ["モニター装着", "末梢ルート確保", "急速輸液", "輸血", "外科コール", "手術室/麻酔科コール", "ICUコール"], deadlineSeconds: 6 * 60, deteriorationMessage: "循環動態が悪化。出血性ショックへの初期蘇生と手術調整が未完了です。" },
   13: { required: ["モニター装着", "酸素投与", "気道確保・挿管", "末梢ルート確保", "輸血", "脳神経外科コール", "ICUコール"], deadlineSeconds: 6 * 60, deteriorationMessage: "ショックが進行。気道・循環管理と脳神経外科・ICUへの連絡が未完了です。" },
   38: { required: ["モニター装着", "末梢ルート確保", "脳神経外科コール"], deadlineSeconds: 8 * 60, deteriorationMessage: "神経所見が悪化。脳卒中対応と専門科への連絡が未完了です。" },
   39: { required: ["モニター装着", "末梢ルート確保", "急速輸液", "鎮痛", "外科コール"], deadlineSeconds: 7 * 60, deteriorationMessage: "腹痛と循環動態が悪化。再評価と初期治療が未完了です。" },
-  40: { required: ["モニター装着", "末梢ルート確保", "急速輸液", "輸血", "TAE", "放射線科コール", "外科コール", "手術室/麻酔科コール", "ICUコール"], deadlineSeconds: 7 * 60, deteriorationMessage: "肝損傷による出血性ショックが進行。止血と手術・ICU調整が未完了です。" },
+  40: { required: ["モニター装着", "末梢ルート確保", "急速輸液", "輸血", "放射線科コール", "外科コール", "手術室/麻酔科コール", "ICUコール"], deadlineSeconds: 7 * 60, deteriorationMessage: "肝損傷による出血性ショックが進行。止血と手術・ICU調整が未完了です。" },
   41: { required: ["モニター装着", "酸素投与", "気道確保・挿管", "末梢ルート確保", "骨折部の固定", "整形外科コール", "ICUコール"], deadlineSeconds: 7 * 60, deteriorationMessage: "脂肪塞栓症候群による呼吸不全が進行。気道管理とICU調整が未完了です。" },
   45: { required: ["モニター装着", "末梢ルート確保", "アトロピン投与", "循環器科コール", "ICUコール"], deadlineSeconds: 7 * 60, deteriorationMessage: "徐脈性ショックが悪化。薬剤投与と循環器科・ICUへの連絡が未完了です。" },
 };
@@ -118,8 +116,6 @@ export function isTreatmentAllowed(patient: Patient, option: TreatmentOption) {
   if (option === "骨盤バインダー") return /骨盤(?:骨折|動揺)|サムスリング/.test(text);
   if (option === "頭部挙上") return /頭部外傷|頭蓋内|硬膜[下外]|脳ヘルニア/.test(text);
   if (option === "鎮痛") return /疼痛|痛|骨折|打撲/.test(text);
-  if (option === "緊急手術") return /緊急(?:開腹|開胸|開頭|手術)|手術適応/.test(text);
-  if (option === "TAE") return /TAE|血管内治療/.test(text);
   if (option === "アトロピン投与") return /アトロピン|徐脈|房室ブロック/.test(text);
   if (option === "アドレナリン投与") return /アドレナリン|アナフィラキシー|心停止|CPA/.test(text);
   if (option === "外科コール") return /外科|開腹|開胸|腹膜炎|消化管穿孔/.test(text);
@@ -129,7 +125,7 @@ export function isTreatmentAllowed(patient: Patient, option: TreatmentOption) {
   if (option === "循環器科コール") return /循環器|STEMI|心筋梗塞|房室ブロック|PCI|冠動脈/.test(text);
   if (option === "小児科コール") return /小児|乳児|幼児|児童/.test(text);
   if (option === "消化器科コール") return /消化器|消化管|腸管|腸間膜|肝損傷|腹部/.test(text);
-  if (option === "放射線科コール") return /TAE|血管造影|AG\b|IVR/.test(text);
+  if (option === "放射線科コール") return /TAE|血管内治療|血管造影|AG\b|IVR/.test(text);
   if (option === "手術室/麻酔科コール") return /手術|開腹|開胸|開頭|骨接合|デブリドマン/.test(text);
   if (option === "ICUコール") return patient.destination.includes("ICU") || /ICU/.test(text);
   return false;

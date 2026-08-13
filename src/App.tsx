@@ -355,7 +355,7 @@ function App() {
 
     oscillator.type = "square";
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.045, now + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.09, now + 0.025);
     for (let index = 0; index < cycles; index += 1) {
       const start = now + index * cycleSeconds;
       oscillator.frequency.setValueAtTime(660, start);
@@ -381,7 +381,7 @@ function App() {
       oscillator.frequency.setValueAtTime(392, now + offset);
       oscillator.frequency.linearRampToValueAtTime(440, now + offset + 0.12);
       gain.gain.setValueAtTime(0.0001, now + offset);
-      gain.gain.exponentialRampToValueAtTime(0.035, now + offset + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.075, now + offset + 0.012);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.14);
       oscillator.connect(gain);
       gain.connect(context.destination);
@@ -563,12 +563,19 @@ function App() {
       id: createId("arrival"), type: "patient_arrived", patientId: id,
       label: `症例${id}が来院`, atSeconds: clockSeconds,
     }))]);
-    if (arrivedIds.some((id) => patients.find((patient) => patient.id === id)?.method === "ambulance")) {
+    const ambulanceArrived = arrivedIds.some((id) => patients.find((patient) => patient.id === id)?.method === "ambulance");
+    const carArrived = arrivedIds.some((id) => patients.find((patient) => patient.id === id)?.method === "car");
+    if (ambulanceArrived) {
       void playAmbulanceSiren();
     }
-    if (arrivedIds.some((id) => patients.find((patient) => patient.id === id)?.method === "car")) {
+    if (carArrived) {
       void playCarHorn();
     }
+    const arrivalMessages = [
+      ambulanceArrived ? "救急車が来ました" : "",
+      carArrived ? "車の中で動けない人がいるようです" : "",
+    ].filter(Boolean);
+    if (arrivalMessages.length > 0) setTreatmentFeedback(`看護師: ${arrivalMessages.join("　")}`);
   }, [clockSeconds, elapsedSeconds, playAmbulanceSiren, playCarHorn, runtime, scenario]);
 
   useEffect(() => {
@@ -823,10 +830,6 @@ function App() {
     const state = runtime[patientId];
     const plan = treatmentPlanFor(patientId);
     if (!patient || !state || state.appliedTreatments?.includes(option)) return;
-    if ((option === "緊急手術" || option === "TAE") && !state.imagingCompleted) {
-      setTreatmentFeedback("看護師: 画像確認しないで大丈夫ですか？");
-      return;
-    }
     if (!isTreatmentAllowed(patient, option)) {
       setTreatmentFeedback("看護師: それ今必要ですか？");
       return;
@@ -1114,7 +1117,7 @@ function App() {
                     </section>
                   </section>}
                   {canClinicalAssess && <section className="information-stage treatment-stage">
-                    <span>救急治療方針</span>
+                    <span>救急治療</span>
                     <p>{selectedTreatmentPlan ? `初療開始から ${Math.ceil(selectedTreatmentPlan.deadlineSeconds / 60)}分以内に必要な対応を選択してください。` : "患者の状態に応じて必要な対応を選択してください。"}</p>
                     <div className="treatment-actions">
                       {treatmentOptions.map((option) => <button key={option} className={selectedState.appliedTreatments?.includes(option) ? "completed" : ""} disabled={selectedState.appliedTreatments?.includes(option)} onClick={() => selectTreatment(selectedPatient.id, option)}>{option}</button>)}
