@@ -100,6 +100,7 @@ type BgmMode = "opening" | "training";
 
 const START_MINUTE = 10 * 60;
 const STORAGE_KEY = "disaster-tabletop-v11";
+const BGM_SRC = `${import.meta.env.BASE_URL}bgm-loop.wav`;
 
 const defaultRuntime = (scenarioId: ScenarioId): Record<number, PatientRuntime> => {
   const activeIds = new Set(scenarioById(scenarioId).patientIds);
@@ -188,9 +189,9 @@ function App() {
   const [bgmEnabled, setBgmEnabled] = useState(true);
   const [hydrated, setHydrated] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const bgmTimerRef = useRef<number | null>(null);
-  const bgmNodesRef = useRef<OscillatorNode[]>([]);
+  const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
   const bgmModeRef = useRef<BgmMode | null>(null);
+  const audioUnlockedRef = useRef(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const scenario = useMemo(() => scenarioById(scenarioId), [scenarioId]);
   const elapsedSeconds = clockSeconds - START_MINUTE * 60;
@@ -227,68 +228,67 @@ function App() {
     return context;
   }, [getAudioContext]);
 
-  const resetBgm = useCallback(() => {
-    if (bgmTimerRef.current !== null) window.clearInterval(bgmTimerRef.current);
-    bgmTimerRef.current = null;
-    bgmNodesRef.current.forEach((node) => {
-      try { node.stop(); } catch { /* already stopped */ }
-    });
-    bgmNodesRef.current = [];
+  const ensureBgmAudio = useCallback(() => {
+    if (!bgmAudioRef.current) {
+      const audio = new Audio(BGM_SRC);
+      audio.loop = true;
+      audio.preload = "auto";
+      audio.volume = 0.5;
+      bgmAudioRef.current = audio;
+    }
+    return bgmAudioRef.current;
+  }, []);
+
+  const unlockAudio = useCallback(async () => {
+    const context = await ensureAudioContext();
+    if (context && !audioUnlockedRef.current) {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      gain.gain.setValueAtTime(0.0001, context.currentTime);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(context.currentTime);
+      oscillator.stop(context.currentTime + 0.01);
+    }
+
+    const audio = ensureBgmAudio();
+    const wasMuted = audio.muted;
+    const originalTime = audio.currentTime;
+    audio.muted = true;
+    try {
+      await audio.play();
+      audio.pause();
+      audio.currentTime = originalTime;
+      audioUnlockedRef.current = true;
+    } catch {
+      audio.currentTime = originalTime;
+    } finally {
+      audio.muted = wasMuted;
+    }
+    return context;
+  }, [ensureAudioContext, ensureBgmAudio]);
+
+  const stopBgm = useCallback(() => {
+    const audio = bgmAudioRef.current;
+    if (!audio) return;
+    audio.pause();
+    audio.currentTime = 0;
     bgmModeRef.current = null;
   }, []);
 
-  const startBgm = useCallback((mode?: BgmMode, force = false) => {
+  const startBgm = useCallback(async (mode?: BgmMode, force = false) => {
     if (!bgmEnabled && !force) return;
     const requestedMode = mode ?? (showOpening ? "opening" : "training");
-    const context = getAudioContext();
-    if (!context) return;
-
-    // PWA browsers require this resume call and the first scheduled sound to share a user gesture.
-    if (context.state !== "running") void context.resume().catch(() => undefined);
-    if (bgmTimerRef.current !== null) {
-      if (bgmModeRef.current === requestedMode) return;
-      resetBgm();
-    }
+    const audio = ensureBgmAudio();
     bgmModeRef.current = requestedMode;
-
-    const scheduleTone = (frequency: number, start: number, duration: number, volume: number, type: OscillatorType) => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      const filter = context.createBiquadFilter();
-      oscillator.type = type;
-      oscillator.frequency.setValueAtTime(frequency, start);
-      filter.type = "lowpass";
-      filter.frequency.setValueAtTime(2200, start);
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(volume, start + 0.025);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-      oscillator.connect(filter);
-      filter.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(start);
-      oscillator.stop(start + duration + 0.03);
-      bgmNodesRef.current.push(oscillator);
-    };
-
-    const schedulePattern = () => {
-      const now = context.currentTime + 0.06;
-      if (requestedMode === "opening") {
-        const lead = [261.63, 329.63, 392, 493.88, 523.25, 659.25, 587.33, 493.88];
-        lead.forEach((note, index) => scheduleTone(note, now + index * 0.46, 0.42, 0.055, "triangle"));
-        [65.41, 73.42, 87.31, 98].forEach((note, index) => scheduleTone(note, now + index * 0.92, 0.8, 0.06, "sine"));
-      } else {
-        const pulse = [65.41, 65.41, 73.42, 65.41, 87.31, 73.42, 65.41, 98];
-        pulse.forEach((note, index) => {
-          const start = now + index * 0.5;
-          scheduleTone(note, start, 0.3, 0.07, "sine");
-          if (index % 2 === 1) scheduleTone(note * 4, start + 0.14, 0.12, 0.028, "triangle");
-        });
-      }
-    };
-
-    schedulePattern();
-    bgmTimerRef.current = window.setInterval(schedulePattern, requestedMode === "opening" ? 3800 : 4000);
-  }, [bgmEnabled, getAudioContext, resetBgm, showOpening]);
+    audio.volume = requestedMode === "opening" ? 0.56 : 0.46;
+    try {
+      await audio.play();
+      audioUnlockedRef.current = true;
+    } catch {
+      // Browser blocked playback until the user interacts.
+    }
+  }, [bgmEnabled, ensureBgmAudio, showOpening]);
 
   const playMoveSound = useCallback(async () => {
     const context = await ensureAudioContext();
@@ -368,14 +368,21 @@ function App() {
     });
   }, []);
 
-  const stopBgm = useCallback(() => {
-    resetBgm();
-  }, [resetBgm]);
-
   useEffect(() => {
-    if (!bgmEnabled) stopBgm();
-    if (bgmEnabled && !showOpening && bgmModeRef.current === "opening") void startBgm("training");
-  }, [bgmEnabled, showOpening, startBgm, stopBgm]);
+    if (!bgmEnabled) {
+      stopBgm();
+      return;
+    }
+    if (showOpening) {
+      void startBgm("opening");
+      return;
+    }
+    if (!running) {
+      void startBgm("training");
+      return;
+    }
+    stopBgm();
+  }, [bgmEnabled, running, showOpening, startBgm, stopBgm]);
 
   useEffect(() => stopBgm, [stopBgm]);
 
@@ -809,16 +816,22 @@ function App() {
 
   const addMinutes = (minutes: number) => advanceTime(minutes * 60);
 
-  const beginTraining = () => {
-    if (bgmEnabled) startBgm("training", true);
+  const beginTraining = async () => {
+    await unlockAudio();
     setShowOpening(false);
     setRunning(true);
     recordEvent("training_started", "訓練を開始");
   };
 
-  const activateAudio = () => {
-    if (bgmEnabled) startBgm(showOpening ? "opening" : "training", true);
-  };
+  const activateAudio = useCallback(async () => {
+    await unlockAudio();
+    if (!bgmEnabled) return;
+    if (showOpening) {
+      await startBgm("opening", true);
+      return;
+    }
+    if (!running) await startBgm("training", true);
+  }, [bgmEnabled, running, showOpening, startBgm, unlockAudio]);
 
   const zonesInMap: Array<{ id: ZoneId; title: string; icon: typeof Hospital; className: string; capacity?: number }> = [
     { id: "ambulance", title: "救急車搬入口", icon: Ambulance, className: "arrival-zone" },
@@ -841,9 +854,10 @@ function App() {
       onScenarioChange={changeScenario}
       onCapacityChange={setCapacity}
       onAudioActivate={activateAudio}
-      onBgmPlay={() => {
+      onBgmPlay={async () => {
+        await unlockAudio();
         setBgmEnabled(true);
-        startBgm("opening", true);
+        await startBgm("opening", true);
       }}
       onStart={beginTraining}
     />;
@@ -885,7 +899,7 @@ function App() {
           <button className={`icon-button ${bgmEnabled ? "active" : ""}`} onClick={() => {
             const nextEnabled = !bgmEnabled;
             setBgmEnabled(nextEnabled);
-            if (nextEnabled) startBgm(showOpening ? "opening" : "training", true);
+            if (nextEnabled) void activateAudio();
             if (!nextEnabled) stopBgm();
           }} title={bgmEnabled ? "BGMを停止" : "BGMを再生"}>{bgmEnabled ? <Volume2 /> : <VolumeX />}</button>
           <button className={`icon-button ${showScore ? "active" : ""}`} onClick={() => setShowScore((value) => !value)} title="スコアと履歴"><Trophy /></button>
