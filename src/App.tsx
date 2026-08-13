@@ -51,6 +51,7 @@ import {
   scenarioById,
   scenarios,
   scoreAxisLabels,
+  scoreRules,
   scoreTriage,
   treatmentOptions,
   treatmentPlanFor,
@@ -195,11 +196,10 @@ function App() {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const scenario = useMemo(() => scenarioById(scenarioId), [scenarioId]);
   const elapsedSeconds = clockSeconds - START_MINUTE * 60;
-  const remainingSeconds = Math.max(0, scenario.durationMinutes * 60 - elapsedSeconds);
   const scoreTotals = useMemo(() => {
     const totals: Record<ScoreAxis, number> = { triage: 0, clinical: 0, flow: 0, coordination: 0 };
     for (const entry of scores) {
-      if (entry.points < 0) totals[entry.axis] += entry.points;
+      if (entry.points < 0 || entry.countsTowardTotal) totals[entry.axis] += entry.points;
     }
     return totals;
   }, [scores]);
@@ -328,6 +328,32 @@ function App() {
       oscillator.start(start);
       oscillator.stop(start + 0.18);
     });
+  }, [ensureAudioContext]);
+
+  const playAmbulanceSiren = useCallback(async () => {
+    const context = await ensureAudioContext();
+    if (!context || context.state !== "running") return;
+    const now = context.currentTime;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const cycleSeconds = 0.32;
+    const cycles = 5;
+
+    oscillator.type = "square";
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.045, now + 0.025);
+    for (let index = 0; index < cycles; index += 1) {
+      const start = now + index * cycleSeconds;
+      oscillator.frequency.setValueAtTime(660, start);
+      oscillator.frequency.linearRampToValueAtTime(880, start + cycleSeconds / 2);
+      oscillator.frequency.linearRampToValueAtTime(660, start + cycleSeconds);
+    }
+    const end = now + cycles * cycleSeconds;
+    gain.gain.exponentialRampToValueAtTime(0.0001, end);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(end + 0.02);
   }, [ensureAudioContext]);
 
   const playBuzzerSound = useCallback(async () => {
@@ -507,21 +533,26 @@ function App() {
       id: createId("arrival"), type: "patient_arrived", patientId: id,
       label: `症例${id}が来院`, atSeconds: clockSeconds,
     }))]);
-  }, [clockSeconds, elapsedSeconds, runtime, scenario]);
+    if (arrivedIds.some((id) => patients.find((patient) => patient.id === id)?.method === "ambulance")) {
+      void playAmbulanceSiren();
+    }
+  }, [clockSeconds, elapsedSeconds, playAmbulanceSiren, runtime, scenario]);
 
   useEffect(() => {
-    if (!running || remainingSeconds > 0) return;
+    if (!running || completedPatients < scenario.patientIds.length) return;
     setRunning(false);
-    recordEvent("session_ended", `${scenario.name}シナリオ終了`);
-  }, [remainingSeconds, running, recordEvent, scenario.name]);
+    recordEvent("session_ended", "全症例がゴールに到達し、シミュレーションを完了");
+    setWorkflowNotice("全症例ゴール到達！ 最終スコアを確認してください");
+    playFanfare(false);
+  }, [completedPatients, playFanfare, recordEvent, running, scenario.patientIds.length]);
 
   useEffect(() => {
     const elapsedMinutes = elapsedSeconds / 60;
     for (const id of scenario.patientIds) {
       const state = runtime[id];
       if (!state || state.zone === "scheduled" || state.zone === "complete" || state.assignedTriage) continue;
-      if (elapsedMinutes - scenario.arrivalOffsets[id] < 5) continue;
-      applyScore({ axis: "triage", points: -10, reason: "来院後5分以上、一次トリアージ未完了", patientId: id }, `untriaged-${id}`);
+      if (elapsedMinutes - scenario.arrivalOffsets[id] < scoreRules.delayedPrimaryTriageMinutes) continue;
+      applyScore({ axis: "triage", points: scoreRules.delayedPrimaryTriage, reason: `来院後${scoreRules.delayedPrimaryTriageMinutes}分以上、一次トリアージ未完了`, patientId: id }, `untriaged-${id}`);
     }
   }, [applyScore, elapsedSeconds, runtime, scenario]);
 
@@ -561,7 +592,7 @@ function App() {
       const state = runtime[id];
       if (!state?.deteriorationAt || state.deteriorationAcknowledged) continue;
       if (clockSeconds - state.deteriorationAt < 3 * 60) continue;
-      applyScore({ axis: "clinical", points: -10, reason: "急変後3分以上、再評価未実施", patientId: id }, `deterioration-delay-${id}`);
+      applyScore({ axis: "clinical", points: scoreRules.delayedDeteriorationReassessment, reason: "急変後3分以上、再評価未実施", patientId: id }, `deterioration-delay-${id}`);
     }
   }, [applyScore, clockSeconds, runtime, scenario.patientIds]);
 
@@ -694,14 +725,27 @@ function App() {
     const movedToLight = target.startsWith("light-");
     if (patient && (movedToEr || movedToLight)) {
       const correct = (patient.expectedZone === "er" && movedToEr) || (patient.expectedZone === "light" && movedToLight);
-      applyScore({ axis: "flow", points: correct ? 5 : -5, reason: correct ? "想定診療ゾーンへ移動" : "想定と異なる初期診療ゾーン", patientId }, `initial-zone-${patientId}`);
+      applyScore({ axis: "flow", points: correct ? 5 : scoreRules.incorrectInitialZone, reason: correct ? "想定診療ゾーンへ移動" : "想定と異なる初期診療ゾーン", patientId }, `initial-zone-${patientId}`);
     }
     setSelectedId(patientId);
     if (isGoalZone(target) && !isGoalZone(state.zone)) {
       const goalLabel = target === "complete" ? "帰宅" : "入院";
       applyScore({ axis: "flow", points: 20, reason: `${goalLabel}まで搬送完了`, patientId }, `goal-${patientId}`);
+      const isSeverePatient = patient.triage === "red";
+      const severeCareComplete = !treatmentPlanFor(patientId) || state.treatmentComplete;
+      if (isSeverePatient && severeCareComplete) {
+        applyScore({
+          axis: "clinical",
+          points: scoreRules.severePatientGoalBonus,
+          reason: "重症症例を適切な治療後にゴールへ搬送",
+          patientId,
+          countsTowardTotal: true,
+        }, `severe-goal-bonus-${patientId}`);
+      }
       recordEvent("goal_reached", `症例${patientId}: ${goalLabel}ゴール到達`, patientId);
-      setWorkflowNotice(`症例${patientId}　ゴール到達！ +20点`);
+      setWorkflowNotice(isSeverePatient && severeCareComplete
+        ? `症例${patientId}　重症対応ゴール！ ボーナス +${scoreRules.severePatientGoalBonus}点`
+        : `症例${patientId}　ゴール到達！`);
       playFanfare(false);
     }
   };
@@ -883,9 +927,9 @@ function App() {
             {running ? <CirclePause /> : <CirclePlay />}
           </button>
           <strong>{formatClock(clockSeconds)}</strong>
-          <span className="scenario-badge">{scenario.name} {scenario.durationMinutes}分</span>
-          <span className="remaining-time">残り {Math.ceil(remainingSeconds / 60)}分</span>
-          <span className="goal-pill">Goal {completedPatients}/50</span>
+          <span className="scenario-badge">{scenario.name} 到着目安 {scenario.durationMinutes}分</span>
+          <span className="remaining-time">経過 {Math.floor(elapsedSeconds / 60)}分</span>
+          <span className="goal-pill">Goal {completedPatients}/{scenario.patientIds.length}</span>
           {activeDeteriorations > 0 && <span className="acute-counter">急変 {activeDeteriorations}</span>}
           <button className="speed-badge" onClick={() => setSpeed((value) => value === 1 ? 2 : 1)} title="進行速度を変更">{speed}x</button>
           <button className="small-button" onClick={() => addMinutes(1)}>+1分</button>
@@ -933,7 +977,7 @@ function App() {
         </section>
       )}
 
-      {showScore && <ScorePanel totals={scoreTotals} entries={scores} events={events} totalScore={totalScore} completedPatients={completedPatients} />}
+      {showScore && <ScorePanel totals={scoreTotals} entries={scores} events={events} totalScore={totalScore} completedPatients={completedPatients} goalCount={scenario.patientIds.length} />}
       {(workflowNotice || treatmentFeedback) && <div className="notice-stack" role="status">
         {workflowNotice && <div className="workflow-notice acute-notice">{workflowNotice}</div>}
         {treatmentFeedback && <div className="workflow-notice nurse-notice"><strong>看護師</strong><span>{treatmentFeedback.replace("看護師: ", "")}</span></div>}
@@ -1072,10 +1116,10 @@ function App() {
   );
 }
 
-function ScorePanel({ totals, entries, events, totalScore, completedPatients }: { totals: Record<ScoreAxis, number>; entries: ScoreEntry[]; events: GameEvent[]; totalScore: number; completedPatients: number }) {
+function ScorePanel({ totals, entries, events, totalScore, completedPatients, goalCount }: { totals: Record<ScoreAxis, number>; entries: ScoreEntry[]; events: GameEvent[]; totalScore: number; completedPatients: number; goalCount: number }) {
   return <section className="score-panel" aria-label="スコアと操作履歴">
     <div className="score-summary">
-      <div className="score-total-cell"><span>総合スコア</span><strong>{totalScore}</strong><small>ゴール {completedPatients}/50</small></div>
+      <div className="score-total-cell"><span>総合スコア</span><strong>{totalScore}</strong><small>ゴール {completedPatients}/{goalCount}</small></div>
       {(Object.keys(scoreAxisLabels) as ScoreAxis[]).map((axis) => <div key={axis}><span>{scoreAxisLabels[axis]}</span><strong className={totals[axis] < 0 ? "negative" : ""}>{totals[axis]}</strong></div>)}
     </div>
     <div className="score-feed">
@@ -1136,7 +1180,7 @@ function OpeningScreen({
         </section>
         <section className="opening-section">
           <div className="opening-section-title"><Trophy size={18} /><div><strong>スコア</strong><span>開始時は100点</span></div></div>
-          <p className="opening-score">未トリアージ、過小トリアージ、急変時の対応遅れなどで減点します。適切な判断や処置は達成履歴として記録され、スコアは100点を上限とします。</p>
+          <p className="opening-score">到着目安を過ぎても訓練は継続し、全症例のゴール到達時に評価します。未トリアージ、過小トリアージ、急変時の対応遅れは減点。重症症例を必要な治療後にゴールさせるとボーナスで回復します。</p>
           <div className="opening-score-scale"><span>100</span><i /><span>0</span></div>
         </section>
         <section className="opening-section opening-setup-section">

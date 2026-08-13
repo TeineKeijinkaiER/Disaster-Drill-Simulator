@@ -27,6 +27,7 @@ export interface ScoreEntry {
   reason: string;
   atSeconds: number;
   patientId?: number;
+  countsTowardTotal?: boolean;
 }
 
 export interface DeteriorationRule {
@@ -208,12 +209,24 @@ export const scoreAxisLabels: Record<ScoreAxis, string> = {
   coordination: "部門連携",
 };
 
+// The overall score starts at 100 and is a deduction-based assessment.
+// Small flow delays should be visible without overwhelming clinical decisions.
+export const scoreRules = {
+  delayedPrimaryTriage: -1,
+  delayedPrimaryTriageMinutes: 8,
+  underTriage: -6,
+  overTriage: -2,
+  incorrectInitialZone: -2,
+  delayedDeteriorationReassessment: -4,
+  severePatientGoalBonus: 8,
+} as const;
+
 const triageRank: Record<Triage, number> = { green: 1, yellow: 2, red: 3 };
 
 export function scoreTriage(expected: Triage, assigned: Triage) {
   if (expected === assigned) return { points: 10, reason: "想定と一致する一次トリアージ" };
-  if (triageRank[assigned] < triageRank[expected]) return { points: -15, reason: "過小トリアージ" };
-  return { points: -5, reason: "過大トリアージ" };
+  if (triageRank[assigned] < triageRank[expected]) return { points: scoreRules.underTriage, reason: "過小トリアージ" };
+  return { points: scoreRules.overTriage, reason: "過大トリアージ" };
 }
 
 export function createId(prefix: string) {
