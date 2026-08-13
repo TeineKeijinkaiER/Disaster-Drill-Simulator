@@ -101,7 +101,10 @@ type BgmMode = "opening" | "training";
 
 const START_MINUTE = 10 * 60;
 const STORAGE_KEY = "disaster-tabletop-v11";
-const BGM_SRC = `${import.meta.env.BASE_URL}bgm-loop.wav`;
+const BGM_SOURCES: Record<BgmMode, string> = {
+  opening: `${import.meta.env.BASE_URL}bgm-loop.wav`,
+  training: `${import.meta.env.BASE_URL}game-bgm-loop.wav`,
+};
 
 const defaultRuntime = (scenarioId: ScenarioId): Record<number, PatientRuntime> => {
   const activeIds = new Set(scenarioById(scenarioId).patientIds);
@@ -170,6 +173,14 @@ function isGoalZone(zone: ZoneId) {
   return zone === "icu" || zone === "eu" || zone === "general" || zone === "complete";
 }
 
+function goalTreatmentRequirements(patient: Patient) {
+  const requirements = [...(treatmentPlanFor(patient.id)?.required ?? [])];
+  for (const option of ["骨折部の固定", "創部処置"] as TreatmentOption[]) {
+    if (isTreatmentAllowed(patient, option) && !requirements.includes(option)) requirements.push(option);
+  }
+  return requirements;
+}
+
 function App() {
   const [scenarioId, setScenarioId] = useState<ScenarioId>("standard");
   const [showOpening, setShowOpening] = useState(true);
@@ -192,6 +203,7 @@ function App() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
   const bgmModeRef = useRef<BgmMode | null>(null);
+  const bgmSourceRef = useRef<BgmMode | null>(null);
   const audioUnlockedRef = useRef(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const scenario = useMemo(() => scenarioById(scenarioId), [scenarioId]);
@@ -228,13 +240,15 @@ function App() {
     return context;
   }, [getAudioContext]);
 
-  const ensureBgmAudio = useCallback(() => {
-    if (!bgmAudioRef.current) {
-      const audio = new Audio(BGM_SRC);
+  const ensureBgmAudio = useCallback((mode: BgmMode) => {
+    if (!bgmAudioRef.current || bgmSourceRef.current !== mode) {
+      bgmAudioRef.current?.pause();
+      const audio = new Audio(BGM_SOURCES[mode]);
       audio.loop = true;
       audio.preload = "auto";
       audio.volume = 0.5;
       bgmAudioRef.current = audio;
+      bgmSourceRef.current = mode;
     }
     return bgmAudioRef.current;
   }, []);
@@ -251,7 +265,7 @@ function App() {
       oscillator.stop(context.currentTime + 0.01);
     }
 
-    const audio = ensureBgmAudio();
+    const audio = ensureBgmAudio(showOpening ? "opening" : "training");
     const wasMuted = audio.muted;
     const originalTime = audio.currentTime;
     audio.muted = true;
@@ -266,7 +280,7 @@ function App() {
       audio.muted = wasMuted;
     }
     return context;
-  }, [ensureAudioContext, ensureBgmAudio]);
+  }, [ensureAudioContext, ensureBgmAudio, showOpening]);
 
   const stopBgm = useCallback(() => {
     const audio = bgmAudioRef.current;
@@ -279,7 +293,7 @@ function App() {
   const startBgm = useCallback(async (mode?: BgmMode, force = false) => {
     if (!bgmEnabled && !force) return;
     const requestedMode = mode ?? (showOpening ? "opening" : "training");
-    const audio = ensureBgmAudio();
+    const audio = ensureBgmAudio(requestedMode);
     bgmModeRef.current = requestedMode;
     audio.volume = requestedMode === "opening" ? 0.56 : 0.46;
     try {
@@ -356,6 +370,26 @@ function App() {
     oscillator.stop(end + 0.02);
   }, [ensureAudioContext]);
 
+  const playCarHorn = useCallback(async () => {
+    const context = await ensureAudioContext();
+    if (!context || context.state !== "running") return;
+    const now = context.currentTime;
+    [0, 0.22].forEach((offset) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "square";
+      oscillator.frequency.setValueAtTime(392, now + offset);
+      oscillator.frequency.linearRampToValueAtTime(440, now + offset + 0.12);
+      gain.gain.setValueAtTime(0.0001, now + offset);
+      gain.gain.exponentialRampToValueAtTime(0.035, now + offset + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.14);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(now + offset);
+      oscillator.stop(now + offset + 0.16);
+    });
+  }, [ensureAudioContext]);
+
   const playBuzzerSound = useCallback(async () => {
     const context = await ensureAudioContext();
     if (!context || context.state !== "running") return;
@@ -403,11 +437,7 @@ function App() {
       void startBgm("opening");
       return;
     }
-    if (!running) {
-      void startBgm("training");
-      return;
-    }
-    stopBgm();
+    void startBgm("training");
   }, [bgmEnabled, running, showOpening, startBgm, stopBgm]);
 
   useEffect(() => stopBgm, [stopBgm]);
@@ -536,7 +566,10 @@ function App() {
     if (arrivedIds.some((id) => patients.find((patient) => patient.id === id)?.method === "ambulance")) {
       void playAmbulanceSiren();
     }
-  }, [clockSeconds, elapsedSeconds, playAmbulanceSiren, runtime, scenario]);
+    if (arrivedIds.some((id) => patients.find((patient) => patient.id === id)?.method === "car")) {
+      void playCarHorn();
+    }
+  }, [clockSeconds, elapsedSeconds, playAmbulanceSiren, playCarHorn, runtime, scenario]);
 
   useEffect(() => {
     if (!running || completedPatients < scenario.patientIds.length) return;
@@ -658,6 +691,14 @@ function App() {
     const state = runtime[patientId];
     const patient = patients.find((item) => item.id === patientId);
     if (!state || !patient || target === "transit" || target === "scheduled") return;
+    if (isGoalZone(target) && !isGoalZone(state.zone)) {
+      const missingTreatments = goalTreatmentRequirements(patient)
+        .filter((option) => !state.appliedTreatments?.includes(option));
+      if (missingTreatments.length > 0) {
+        setWorkflowNotice(`症例${patientId}: ゴール前に${missingTreatments.join("・")}を実施してください`);
+        return;
+      }
+    }
     if (patient.method !== "ambulance" && state.zone === "walkin" && target !== "triage") {
       setWorkflowNotice(`症例${patientId}は一次トリアージへ移動してください`);
       return;
@@ -862,6 +903,7 @@ function App() {
 
   const beginTraining = async () => {
     await unlockAudio();
+    await startBgm("training", true);
     setShowOpening(false);
     setRunning(true);
     recordEvent("training_started", "訓練を開始");
@@ -870,11 +912,7 @@ function App() {
   const activateAudio = useCallback(async () => {
     await unlockAudio();
     if (!bgmEnabled) return;
-    if (showOpening) {
-      await startBgm("opening", true);
-      return;
-    }
-    if (!running) await startBgm("training", true);
+    await startBgm(showOpening ? "opening" : "training", true);
   }, [bgmEnabled, running, showOpening, startBgm, unlockAudio]);
 
   const zonesInMap: Array<{ id: ZoneId; title: string; icon: typeof Hospital; className: string; capacity?: number }> = [
@@ -1163,7 +1201,7 @@ function OpeningScreen({
       <h1>多数傷病者受入<br />シミュレーション</h1>
       <p className="opening-lead">状況を見極め、受入れの流れをつくる。</p>
       <button className="opening-start" onClick={onStart}><CirclePlay size={20} />訓練を開始</button>
-      <button className="opening-audio" onClick={onBgmPlay}>{bgmEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}{bgmEnabled ? "オープニングBGMを再生" : "オープニングBGMをオン"}</button>
+      <button className="opening-audio" onClick={onBgmPlay}>{bgmEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}{bgmEnabled ? "オープニングBGM: オン" : "オープニングBGM: オフ"}</button>
     </section>
 
     <section className="opening-options" aria-label="訓練開始前の設定">
