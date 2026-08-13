@@ -173,6 +173,27 @@ function isGoalZone(zone: ZoneId) {
   return zone === "icu" || zone === "eu" || zone === "general" || zone === "complete";
 }
 
+type TestTab = "bloodGas" | "specimen" | "ecg" | "imaging";
+
+function chiefComplaint(patient: Patient) {
+  const source = patient.method === "ambulance" ? patient.ambulanceInfo ?? patient.history : patient.history;
+  return firstSentence(source).replace(/^(救急車\d*|乗用車\d*|徒歩)で来院。?\s*/, "") || "主訴の記載なし";
+}
+
+function testResult(patient: Patient, tab: TestTab) {
+  const text = `${patient.tests} ${patient.vitals} ${patient.exam} ${patient.scenario}`;
+  if (tab === "ecg") {
+    return patient.id === 45 ? (patient.tests || "完全房室ブロックを伴う下壁STEMI") : "異常なし";
+  }
+  if (tab === "imaging") return patient.tests || "異常なし";
+  if (tab === "bloodGas") {
+    const match = text.match(/[^。\n]*(?:血液ガス|pH|PaO2|PaCO2|HCO3|BE|乳酸|Lactate)[^。\n]*/i);
+    return match?.[0]?.trim() || "異常なし";
+  }
+  const match = text.match(/[^。\n]*(?:検体|Hb|ヘモグロビン|WBC|白血球|血小板|血糖|Na|K|Cr|AST|ALT|D-dimer|トロポニン)[^。\n]*/i);
+  return match?.[0]?.trim() || "異常なし";
+}
+
 function goalTreatmentRequirements(patient: Patient) {
   const requirements = [...(treatmentPlanFor(patient.id)?.required ?? [])];
   for (const option of ["骨折部の固定", "創部処置"] as TreatmentOption[]) {
@@ -194,6 +215,7 @@ function App() {
   const [workflowNotice, setWorkflowNotice] = useState("");
   const [treatmentFeedback, setTreatmentFeedback] = useState("");
   const [postArrivalInfo, setPostArrivalInfo] = useState<"vitals" | "exam" | "event">("vitals");
+  const [selectedTest, setSelectedTest] = useState<TestTab>("bloodGas");
   const [dragOverZone, setDragOverZone] = useState<ZoneId | null>(null);
   const [capacity, setCapacity] = useState<CapacitySettings>(defaultCapacity);
   const [events, setEvents] = useState<GameEvent[]>([]);
@@ -1075,10 +1097,10 @@ function App() {
               <>
                 <div className="patient-detail-head">
                   <span className={`triage-badge ${selectedState.assignedTriage ?? "unknown"}`}>{selectedState.assignedTriage === "red" ? "赤" : selectedState.assignedTriage === "yellow" ? "黄" : selectedState.assignedTriage === "green" ? "緑" : "?"}</span>
-                  <div><span>症例 {selectedPatient.id}</span><h3>{selectedPatient.patientName && selectedPatient.patientName !== "フリー" ? selectedPatient.patientName : `来院患者 ${selectedPatient.id}`}</h3></div>
+                  <div><span>症例 {selectedPatient.id}</span><h3>主訴: {chiefComplaint(selectedPatient)}</h3></div>
                 </div>
                 <dl className="patient-facts">
-                  <div><dt>来院</dt><dd>開始+{scenario.arrivalOffsets[selectedPatient.id]}分 / {selectedPatient.method === "ambulance" ? "救急車" : selectedPatient.method === "car" ? "乗用車" : "徒歩"}</dd></div>
+                  <div><dt>来院</dt><dd>{selectedPatient.arrival} / {selectedPatient.method === "ambulance" ? "救急車" : selectedPatient.method === "car" ? "乗用車" : "徒歩"}</dd></div>
                   <div><dt>現在</dt><dd>{zoneLabels[selectedState.zone]}</dd></div>
                   {hasPrimaryTriage && <div><dt>一次判定</dt><dd>{selectedState.assignedTriage === "red" ? "赤" : selectedState.assignedTriage === "yellow" ? "黄" : "緑"}</dd></div>}
                 </dl>
@@ -1087,9 +1109,9 @@ function App() {
                   {selectedPatient.method === "ambulance" ? (
                     <section className="information-stage prehospital-stage ambulance-information">
                       <span>救急隊情報</span>
+                      <DetailBlock label="年齢・性別" value={selectedPatient.ageSex} prominent />
                       <DetailBlock label="救急隊からの情報" value={selectedPatient.ambulanceInfo ?? selectedPatient.triageFindings} prominent />
                       <DetailBlock label="救急隊測定バイタル" value={selectedPatient.rescueVitals ?? selectedPatient.vitals} />
-                      <DetailBlock label="年齢・性別" value={selectedPatient.ageSex} />
                     </section>
                   ) : (
                     <section className="information-stage prehospital-stage walkin-information">
@@ -1116,14 +1138,21 @@ function App() {
                       {postArrivalInfo === "exam" && selectedState.revealedExam && <div className="post-arrival-content"><strong>診察所見</strong><p>{selectedPatient.exam}</p></div>}
                     </section>
                   </section>}
-                  {canClinicalAssess && <section className="information-stage treatment-stage">
-                    <span>救急治療</span>
+                  {canClinicalAssess && <details className="information-stage collapsible-stage" open>
+                    <summary>検査所見</summary>
+                    <div className="test-tabs">
+                      {(["bloodGas", "specimen", "ecg", "imaging"] as TestTab[]).map((tab) => <button key={tab} className={selectedTest === tab ? "active" : ""} onClick={() => setSelectedTest(tab)}>{tab === "bloodGas" ? "血液ガス" : tab === "specimen" ? "検体検査" : tab === "ecg" ? "心電図" : "画像検査"}</button>)}
+                    </div>
+                    <div className="test-result"><strong>{selectedTest === "bloodGas" ? "血液ガス" : selectedTest === "specimen" ? "検体検査" : selectedTest === "ecg" ? "心電図" : "画像検査"}</strong><p>{testResult(selectedPatient, selectedTest)}</p></div>
+                  </details>}
+                  {canClinicalAssess && <details className="information-stage treatment-stage collapsible-stage" open>
+                    <summary>救急治療</summary>
                     <p>{selectedTreatmentPlan ? `初療開始から ${Math.ceil(selectedTreatmentPlan.deadlineSeconds / 60)}分以内に必要な対応を選択してください。` : "患者の状態に応じて必要な対応を選択してください。"}</p>
                     <div className="treatment-actions">
                       {treatmentOptions.map((option) => <button key={option} className={selectedState.appliedTreatments?.includes(option) ? "completed" : ""} disabled={selectedState.appliedTreatments?.includes(option)} onClick={() => selectTreatment(selectedPatient.id, option)}>{option}</button>)}
                     </div>
-                    <div className="department-call-group">
-                      <strong>各科・各部署コール</strong>
+                    <details className="department-call-group collapsible-stage">
+                      <summary>各科・各部署コール</summary>
                       <div className="treatment-actions department-actions">
                         {departmentCallOptions.map((option) => {
                           const calledAt = selectedState.treatmentAppliedAt?.[option];
@@ -1137,11 +1166,9 @@ function App() {
                           return <button key={option} className={selectedState.appliedTreatments?.includes(option) ? `completed ${ready ? "ready" : ""}` : ""} disabled={selectedState.appliedTreatments?.includes(option)} onClick={() => selectTreatment(selectedPatient.id, option)}>{label}</button>;
                         })}
                       </div>
-                    </div>
+                    </details>
                     {selectedState.treatmentComplete && <div className="treatment-complete">必要な初期治療を完了しました</div>}
-                  </section>}
-                  {canClinicalAssess && !imagingAvailable && selectedPatient.tests && <section className="information-stage media-prompt-stage"><span>検査・画像</span><p>必要と判断した場合は、患者を画像検査室へ移動してください。検査完了後に結果を確認できます。</p></section>}
-                  {imagingAvailable && <section className="information-stage imaging-result-stage"><span>検査・画像結果</span><div className="result-source"><strong>検査・画像</strong><span>QRコード提示相当</span></div><DetailBlock label="CT・XP・検査所見" value={selectedPatient.tests} prominent /></section>}
+                  </details>}
                 </div>
                 {selectedState.zone === "transit" && (
                   <div className="transit-status"><Clock3 /><div><span>外来間移動</span><strong>残り {Math.ceil((selectedState.transitRemaining ?? 0) / 60)}分</strong></div></div>
