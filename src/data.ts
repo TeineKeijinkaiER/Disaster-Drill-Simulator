@@ -36,6 +36,7 @@ export interface Patient {
   expectedZone: "er" | "light";
   destination: string;
   ageSex: string;
+  chiefComplaint: string;
   history: string;
   ambulanceInfo: string | null;
   rescueVitals: string | null;
@@ -43,6 +44,9 @@ export interface Patient {
   vitals: string;
   exam: string;
   tests: string;
+  bloodGas: string;
+  specimenTests: string;
+  imaging: string;
   scenario: string;
   treatment: string;
   opeAg: string;
@@ -53,6 +57,7 @@ export interface Patient {
   focus: string;
   learningPoints: string;
   branchConditions: string;
+  postErSetting: string;
   moulage: string;
   originalId: string;
   originalCase: string;
@@ -1755,6 +1760,7 @@ export const patients: Patient[] = notionCases.map((source) => {
     expectedZone: zones.includes("救外") ? "er" : "light",
     destination,
     ageSex: source.ageSex,
+    chiefComplaint: source.chiefComplaint,
     history: source.overview,
     ambulanceInfo: rescueNarrative,
     rescueVitals,
@@ -1762,6 +1768,9 @@ export const patients: Patient[] = notionCases.map((source) => {
     vitals: initialVitals,
     exam: source.exam,
     tests: source.tests,
+    bloodGas: source.bloodGas,
+    specimenTests: source.specimenTests,
+    imaging: source.imaging,
     scenario: source.overview,
     treatment: source.treatment,
     opeAg,
@@ -1772,6 +1781,7 @@ export const patients: Patient[] = notionCases.map((source) => {
     focus: source.focus,
     learningPoints: source.learningPoints,
     branchConditions: source.branchConditions,
+    postErSetting: source.postErSetting,
     moulage: source.moulage,
     originalId: source.originalId,
     originalCase: source.originalCase,

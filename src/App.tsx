@@ -176,6 +176,7 @@ function isGoalZone(zone: ZoneId) {
 type TestTab = "bloodGas" | "specimen" | "ecg" | "imaging";
 
 function chiefComplaint(patient: Patient) {
+  if (patient.chiefComplaint) return patient.chiefComplaint;
   const source = patient.method === "ambulance" ? patient.ambulanceInfo ?? patient.history : patient.history;
   return firstSentence(source).replace(/^(救急車\d*|乗用車\d*|徒歩)で来院。?\s*/, "") || "主訴の記載なし";
 }
@@ -185,11 +186,13 @@ function testResult(patient: Patient, tab: TestTab) {
   if (tab === "ecg") {
     return patient.id === 45 ? (patient.tests || "完全房室ブロックを伴う下壁STEMI") : "異常なし";
   }
-  if (tab === "imaging") return patient.tests || "異常なし";
+  if (tab === "imaging") return patient.imaging ? patient.tests || "異常なし" : "異常なし";
   if (tab === "bloodGas") {
+    if (!patient.bloodGas) return "異常なし";
     const match = text.match(/[^。\n]*(?:血液ガス|pH|PaO2|PaCO2|HCO3|BE|乳酸|Lactate)[^。\n]*/i);
     return match?.[0]?.trim() || "異常なし";
   }
+  if (!patient.specimenTests) return "異常なし";
   const match = text.match(/[^。\n]*(?:検体|Hb|ヘモグロビン|WBC|白血球|血小板|血糖|Na|K|Cr|AST|ALT|D-dimer|トロポニン)[^。\n]*/i);
   return match?.[0]?.trim() || "異常なし";
 }
