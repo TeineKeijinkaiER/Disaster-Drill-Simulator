@@ -188,6 +188,7 @@ function testResult(patient: Patient, tab: TestTab) {
   }
   if (tab === "imaging") return patient.imaging ? patient.tests || "異常なし" : "異常なし";
   if (tab === "bloodGas") {
+    if (patient.id === 2) return "異常なし";
     if (!patient.bloodGas) return "異常なし";
     const match = text.match(/[^。\n]*(?:血液ガス|pH|PaO2|PaCO2|HCO3|BE|乳酸|Lactate)[^。\n]*/i);
     return match?.[0]?.trim() || "異常なし";
@@ -1178,9 +1179,10 @@ function App() {
                   {canClinicalAssess && <details className="information-stage collapsible-stage" open>
                     <summary>検査所見</summary>
                     <div className="test-tabs">
-                      {(["bloodGas", "specimen", "ecg", "imaging"] as TestTab[]).map((tab) => <button key={tab} className={selectedTest === tab ? "active" : ""} onClick={() => setSelectedTest(tab)}>{tab === "bloodGas" ? "血液ガス" : tab === "specimen" ? "検体検査" : tab === "ecg" ? "心電図" : "画像検査"}</button>)}
+                      {(["bloodGas", "specimen", "ecg", "imaging"] as TestTab[]).map((tab) => <button key={tab} className={selectedTest === tab ? "active" : ""} disabled={tab === "imaging" && !imagingAvailable} onClick={() => setSelectedTest(tab)}>{tab === "bloodGas" ? "血液ガス" : tab === "specimen" ? "検体検査" : tab === "ecg" ? "心電図" : "画像検査"}</button>)}
                     </div>
-                    <div className="test-result"><strong>{selectedTest === "bloodGas" ? "血液ガス" : selectedTest === "specimen" ? "検体検査" : selectedTest === "ecg" ? "心電図" : "画像検査"}</strong><p>{testResult(selectedPatient, selectedTest)}</p></div>
+                    {!imagingAvailable && <p className="test-access-note">画像所見は、画像検査室で検査が完了してから閲覧できます。</p>}
+                    <div className="test-result"><strong>{selectedTest === "bloodGas" ? "血液ガス" : selectedTest === "specimen" ? "検体検査" : selectedTest === "ecg" ? "心電図" : "画像検査"}</strong><p>{selectedTest === "imaging" && !imagingAvailable ? "画像検査の完了を待機中" : testResult(selectedPatient, selectedTest)}</p></div>
                   </details>}
                   {canClinicalAssess && <details className="information-stage treatment-stage collapsible-stage" open>
                     <summary>救急治療</summary>
