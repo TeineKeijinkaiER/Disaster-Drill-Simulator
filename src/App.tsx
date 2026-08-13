@@ -707,7 +707,7 @@ function App() {
     selectedState.zone === "triage" && !selectedState.assignedTriage,
   );
   const canSubmitPrimaryTriage = Boolean(
-    selectedPatient && selectedState && !selectedState.assignedTriage &&
+    selectedPatient && selectedState &&
     selectedState.zone !== "scheduled" && selectedState.zone !== "complete" &&
     (selectedPatient.method === "ambulance" || selectedState.zone === "triage"),
   );
@@ -822,7 +822,18 @@ function App() {
 
   const submitTriage = (patientId: number, assigned: Triage) => {
     const patient = patients.find((item) => item.id === patientId);
-    if (!patient || runtime[patientId]?.assignedTriage) return;
+    const state = runtime[patientId];
+    if (!patient || !state) return;
+    if (state.assignedTriage === assigned) {
+      setRuntime((current) => ({
+        ...current,
+        [patientId]: { ...current[patientId], assignedTriage: undefined, primaryTriageComplete: false },
+      }));
+      setScores((current) => current.filter((entry) => entry.id !== `triage-${patientId}`));
+      recordEvent("triage_cancelled", `症例${patientId}: 一次トリアージを取り消し`, patientId);
+      return;
+    }
+    setScores((current) => current.filter((entry) => entry.id !== `triage-${patientId}`));
     const result = scoreTriage(patient.triage, assigned);
     setRuntime((current) => ({
       ...current,
@@ -851,7 +862,30 @@ function App() {
     const patient = patients.find((item) => item.id === patientId);
     const state = runtime[patientId];
     const plan = treatmentPlanFor(patientId);
-    if (!patient || !state || state.appliedTreatments?.includes(option)) return;
+    if (!patient || !state) return;
+    const wasApplied = state.appliedTreatments?.includes(option) ?? false;
+    if (wasApplied) {
+      const applied = (state.appliedTreatments ?? []).filter((item) => item !== option);
+      const complete = Boolean(plan?.required.every((required) => applied.includes(required)));
+      const { [option]: _removed, ...remainingAppliedAt } = state.treatmentAppliedAt ?? {};
+      setRuntime((current) => ({
+        ...current,
+        [patientId]: {
+          ...current[patientId],
+          appliedTreatments: applied,
+          treatmentAppliedAt: remainingAppliedAt,
+          treatmentComplete: complete,
+          deteriorationResolved: state.deteriorationLevel ? complete : state.deteriorationResolved,
+          deteriorationAcknowledged: state.deteriorationLevel ? complete : state.deteriorationAcknowledged,
+        },
+      }));
+      if (state.treatmentComplete && !complete) {
+        setScores((current) => current.filter((entry) => entry.id !== `treatment-complete-${patientId}`));
+      }
+      setTreatmentFeedback("");
+      recordEvent("treatment_cancelled", `症例${patientId}: ${option}を取り消し`, patientId);
+      return;
+    }
     if (!isTreatmentAllowed(patient, option)) {
       setTreatmentFeedback("看護師: それ今必要ですか？");
       return;
@@ -1149,7 +1183,7 @@ function App() {
                     <summary>救急治療</summary>
                     <p>{selectedTreatmentPlan ? `初療開始から ${Math.ceil(selectedTreatmentPlan.deadlineSeconds / 60)}分以内に必要な対応を選択してください。` : "患者の状態に応じて必要な対応を選択してください。"}</p>
                     <div className="treatment-actions">
-                      {treatmentOptions.map((option) => <button key={option} className={selectedState.appliedTreatments?.includes(option) ? "completed" : ""} disabled={selectedState.appliedTreatments?.includes(option)} onClick={() => selectTreatment(selectedPatient.id, option)}>{option}</button>)}
+                      {treatmentOptions.map((option) => <button key={option} className={selectedState.appliedTreatments?.includes(option) ? "completed" : ""} onClick={() => selectTreatment(selectedPatient.id, option)}>{option}</button>)}
                     </div>
                     <details className="department-call-group collapsible-stage">
                       <summary>各科・各部署コール</summary>
@@ -1163,7 +1197,7 @@ function App() {
                             : isTimedDestination && !ready
                               ? `${option.replace("コール", "")} 準備中（あと${Math.ceil((5 * 60 - (clockSeconds - calledAt)) / 60)}分）`
                               : `${option.replace("コール", "")} 連絡済み`;
-                          return <button key={option} className={selectedState.appliedTreatments?.includes(option) ? `completed ${ready ? "ready" : ""}` : ""} disabled={selectedState.appliedTreatments?.includes(option)} onClick={() => selectTreatment(selectedPatient.id, option)}>{label}</button>;
+                          return <button key={option} className={selectedState.appliedTreatments?.includes(option) ? `completed ${ready ? "ready" : ""}` : ""} onClick={() => selectTreatment(selectedPatient.id, option)}>{label}</button>;
                         })}
                       </div>
                     </details>
