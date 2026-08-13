@@ -103,15 +103,26 @@ const patientClinicalText = (patient: Patient) => [
   patient.treatment, patient.additionalEvent, patient.branchConditions, patient.destination, patient.moulage,
 ].join(" ");
 
+// Procedures that must be explicitly supported by the case instructions, not merely its diagnosis.
+const patientTreatmentInstructionText = (patient: Patient) => [
+  patient.treatment,
+  patient.branchConditions,
+  patient.controllerChecklist,
+].join(" ");
+
 export function isTreatmentAllowed(patient: Patient, option: TreatmentOption) {
   const plan = treatmentPlanFor(patient.id);
   if (plan?.required.includes(option)) return true;
   const text = patientClinicalText(patient);
+  const treatmentInstructions = patientTreatmentInstructionText(patient);
   if (patient.expectedZone === "er" && ["モニター装着", "酸素投与", "末梢ルート確保", "鎮痛"].includes(option)) return true;
   if (option === "気道確保・挿管") return /挿管|呼吸不全|換気困難|GCS\s*[3-8](?:\D|$)|GCS[≦≤]\s*8|治療抵抗性.*出血性ショック/.test(text);
   if (option === "急速輸液" || option === "輸血") return /ショック|BP\s*[3-8]\d|血圧(?:が)?低下|循環(?:が|動態)?(?:不安定|悪化)|大量出血/.test(text);
   if (option === "創部処置") return /創|切創|擦過|裂創|開放骨折|皮膚欠損/.test(text);
-  if (option === "骨折部の固定") return /骨折/.test(text);
+  if (option === "骨折部の固定") {
+    if (/肋骨|骨盤バインダー|テープ固定/.test(treatmentInstructions)) return false;
+    return /固定|シーネ|整復/.test(treatmentInstructions);
+  }
   if (option === "胸腔ドレーン留置") return /胸腔ドレーン/.test(text);
   if (option === "骨盤バインダー") return /骨盤(?:骨折|動揺)|サムスリング/.test(text);
   if (option === "頭部挙上") return /頭部外傷|頭蓋内|硬膜[下外]|脳ヘルニア/.test(text);
