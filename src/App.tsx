@@ -709,6 +709,10 @@ function App() {
   const hasSecondaryTriage = Boolean(selectedState?.secondaryTriageComplete);
   const hasErAssessment = Boolean(selectedState?.erAssessmentComplete);
   const canClinicalAssess = hasErAssessment || hasSecondaryTriage || selectedState?.zone === "light-room";
+  const isCareZone = Boolean(selectedState?.zone.startsWith("er-") || selectedState?.zone.startsWith("light-"));
+  const canViewLaboratoryResults = isCareZone && Boolean(
+    selectedLaboratoryResults?.bloodGas?.length || selectedLaboratoryResults?.specimen?.length,
+  );
   const awaitingPrimaryTriageTransfer = Boolean(
     selectedPatient && selectedState && selectedPatient.method !== "ambulance" &&
     selectedState.zone === "walkin" && !selectedState.assignedTriage,
@@ -1183,10 +1187,11 @@ function App() {
                       {postArrivalInfo === "exam" && selectedState.revealedExam && <div className="post-arrival-content"><strong>診察所見</strong><p>{selectedPatient.exam}</p></div>}
                     </section>
                   </section>}
-                  {canClinicalAssess && <details className="information-stage collapsible-stage" open>
+                  {(canClinicalAssess || canViewLaboratoryResults) && <details className="information-stage collapsible-stage" open>
                     <summary>検査所見</summary>
                     <div className="test-tabs">
                       {(["bloodGas", "specimen", "ecg", "imaging"] as TestTab[])
+                        .filter((tab) => canClinicalAssess || tab === "bloodGas" || tab === "specimen")
                         .filter((tab) => tab !== "bloodGas" || Boolean(selectedLaboratoryResults?.bloodGas?.length))
                         .filter((tab) => tab !== "specimen" || Boolean(selectedLaboratoryResults?.specimen?.length))
                         .map((tab) => <button key={tab} className={selectedTest === tab ? "active" : ""} disabled={tab === "imaging" && !imagingAvailable} onClick={() => {
