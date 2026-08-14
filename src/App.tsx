@@ -33,6 +33,7 @@ import {
   UsersRound,
   Volume2,
   VolumeX,
+  X,
 } from "lucide-react";
 import {
   patients,
@@ -61,6 +62,7 @@ import {
   type ScoreAxis,
   type ScoreEntry,
 } from "./game";
+import { laboratoryResultsByPatientId, type LaboratoryRow } from "./laboratoryResults";
 
 interface PatientRuntime {
   zone: ZoneId;
@@ -183,16 +185,19 @@ function chiefComplaint(patient: Patient) {
 
 function testResult(patient: Patient, tab: TestTab) {
   const text = `${patient.tests} ${patient.vitals} ${patient.exam} ${patient.scenario}`;
+  const detailedLaboratory = laboratoryResultsByPatientId[patient.id];
   if (tab === "ecg") {
     return patient.id === 45 ? (patient.tests || "完全房室ブロックを伴う下壁STEMI") : "異常なし";
   }
   if (tab === "imaging") return patient.imaging ? patient.tests || "異常なし" : "異常なし";
   if (tab === "bloodGas") {
+    if (detailedLaboratory?.bloodGas?.length) return "数値結果を別ウィンドウに表示しています。";
     if (patient.id === 2) return "異常なし";
     if (!patient.bloodGas) return "異常なし";
     const match = text.match(/[^。\n]*(?:血液ガス|pH|PaO2|PaCO2|HCO3|BE|乳酸|Lactate)[^。\n]*/i);
     return match?.[0]?.trim() || "異常なし";
   }
+  if (tab === "specimen" && detailedLaboratory?.specimen?.length) return "数値結果を別ウィンドウに表示しています。";
   if (!patient.specimenTests) return "異常なし";
   const match = text.match(/[^。\n]*(?:検体|Hb|ヘモグロビン|WBC|白血球|血小板|血糖|Na|K|Cr|AST|ALT|D-dimer|トロポニン)[^。\n]*/i);
   return match?.[0]?.trim() || "異常なし";
@@ -220,6 +225,7 @@ function App() {
   const [treatmentFeedback, setTreatmentFeedback] = useState("");
   const [postArrivalInfo, setPostArrivalInfo] = useState<"vitals" | "exam" | "event">("vitals");
   const [selectedTest, setSelectedTest] = useState<TestTab>("bloodGas");
+  const [openLaboratoryPanel, setOpenLaboratoryPanel] = useState<"bloodGas" | "specimen" | null>(null);
   const [dragOverZone, setDragOverZone] = useState<ZoneId | null>(null);
   const [capacity, setCapacity] = useState<CapacitySettings>(defaultCapacity);
   const [events, setEvents] = useState<GameEvent[]>([]);
@@ -697,6 +703,7 @@ function App() {
 
   const selectedPatient = patients.find((patient) => patient.id === selectedId) ?? null;
   const selectedState = selectedPatient ? runtime[selectedPatient.id] : null;
+  const selectedLaboratoryResults = selectedPatient ? laboratoryResultsByPatientId[selectedPatient.id] : undefined;
   const imagingAvailable = Boolean(selectedState?.imagingCompleted);
   const hasPrimaryTriage = Boolean(selectedState?.assignedTriage);
   const hasSecondaryTriage = Boolean(selectedState?.secondaryTriageComplete);
@@ -1179,7 +1186,13 @@ function App() {
                   {canClinicalAssess && <details className="information-stage collapsible-stage" open>
                     <summary>検査所見</summary>
                     <div className="test-tabs">
-                      {(["bloodGas", "specimen", "ecg", "imaging"] as TestTab[]).map((tab) => <button key={tab} className={selectedTest === tab ? "active" : ""} disabled={tab === "imaging" && !imagingAvailable} onClick={() => setSelectedTest(tab)}>{tab === "bloodGas" ? "血液ガス" : tab === "specimen" ? "検体検査" : tab === "ecg" ? "心電図" : "画像検査"}</button>)}
+                      {(["bloodGas", "specimen", "ecg", "imaging"] as TestTab[])
+                        .filter((tab) => tab !== "bloodGas" || Boolean(selectedLaboratoryResults?.bloodGas?.length))
+                        .filter((tab) => tab !== "specimen" || Boolean(selectedLaboratoryResults?.specimen?.length))
+                        .map((tab) => <button key={tab} className={selectedTest === tab ? "active" : ""} disabled={tab === "imaging" && !imagingAvailable} onClick={() => {
+                          setSelectedTest(tab);
+                          if (tab === "bloodGas" || tab === "specimen") setOpenLaboratoryPanel(tab);
+                        }}>{tab === "bloodGas" ? "血液ガス" : tab === "specimen" ? "検体検査" : tab === "ecg" ? "心電図" : "画像検査"}</button>)}
                     </div>
                     {!imagingAvailable && <p className="test-access-note">画像所見は、画像検査室で検査が完了してから閲覧できます。</p>}
                     <div className="test-result"><strong>{selectedTest === "bloodGas" ? "血液ガス" : selectedTest === "specimen" ? "検体検査" : selectedTest === "ecg" ? "心電図" : "画像検査"}</strong><p>{selectedTest === "imaging" && !imagingAvailable ? "画像検査の完了を待機中" : testResult(selectedPatient, selectedTest)}</p></div>
@@ -1219,8 +1232,32 @@ function App() {
           </aside>
       </main>
     </div>
+    {openLaboratoryPanel && selectedPatient && selectedLaboratoryResults?.[openLaboratoryPanel] && <LaboratoryModal
+      patient={selectedPatient}
+      kind={openLaboratoryPanel}
+      rows={selectedLaboratoryResults[openLaboratoryPanel]!}
+      onClose={() => setOpenLaboratoryPanel(null)}
+    />}
     </DndContext>
   );
+}
+
+function LaboratoryModal({ patient, kind, rows, onClose }: { patient: Patient; kind: "bloodGas" | "specimen"; rows: LaboratoryRow[]; onClose: () => void }) {
+  const title = kind === "bloodGas" ? "血液ガス分析" : "検体検査結果";
+  return <div className="laboratory-modal-backdrop" role="presentation" onMouseDown={onClose}>
+    <section className="laboratory-modal" role="dialog" aria-modal="true" aria-label={`${title} 症例 ${patient.id}`} onMouseDown={(event) => event.stopPropagation()}>
+      <header>
+        <div><span>症例 {patient.id}</span><h2>{title}</h2><p>{patient.name}</p></div>
+        <button className="icon-button" onClick={onClose} title="閉じる"><X /></button>
+      </header>
+      <div className="laboratory-table-wrap">
+        <table className="laboratory-table">
+          <thead><tr><th>項目</th><th>結果</th><th>基準値</th></tr></thead>
+          <tbody>{rows.map((row) => <tr key={row.item}><th scope="row">{row.item}</th><td>{row.value}</td><td>{row.reference}</td></tr>)}</tbody>
+        </table>
+      </div>
+    </section>
+  </div>;
 }
 
 function ScorePanel({ totals, entries, events, totalScore, completedPatients, goalCount }: { totals: Record<ScoreAxis, number>; entries: ScoreEntry[]; events: GameEvent[]; totalScore: number; completedPatients: number; goalCount: number }) {

@@ -214,6 +214,19 @@ button { cursor: pointer; }
 .test-result { padding: 8px 9px; border: 1px solid #d3e0e6; border-radius: 4px; background: #fff; }
 .test-result strong { color: #3a5664; font-size: 10px; }
 .test-result p { margin: 4px 0 0; color: #33423c; font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
+.laboratory-modal-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 28px; background: rgba(23, 37, 32, .54); }
+.laboratory-modal { width: min(720px, calc(100vw - 56px)); max-height: min(760px, calc(100vh - 56px)); overflow: hidden; border: 1px solid #bdc9c3; border-radius: 7px; background: #fbfcfb; box-shadow: 0 24px 56px rgba(14, 26, 22, .34); }
+.laboratory-modal > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 18px 20px 16px; border-bottom: 1px solid #d7dfda; background: #f2f7f4; }
+.laboratory-modal header span { color: #557369; font-size: 10px; font-weight: 900; }
+.laboratory-modal h2 { margin: 3px 0 0; color: #1f4e3d; font-size: 20px; line-height: 1.2; }
+.laboratory-modal header p { margin: 5px 0 0; color: #66746e; font-size: 11px; }
+.laboratory-table-wrap { max-height: calc(min(760px, 100vh - 56px) - 108px); overflow: auto; padding: 16px 20px 20px; }
+.laboratory-table { width: 100%; border-collapse: collapse; background: #fff; font-size: 13px; }
+.laboratory-table th, .laboratory-table td { padding: 10px 12px; border: 1px solid #d6dfda; text-align: left; }
+.laboratory-table thead th { background: #dfece6; color: #294e40; font-size: 11px; font-weight: 900; }
+.laboratory-table tbody th { width: 27%; background: #f5f8f6; color: #3f544b; font-weight: 800; }
+.laboratory-table tbody td:nth-child(2) { color: #1d5640; font-weight: 900; font-variant-numeric: tabular-nums; }
+.laboratory-table tbody td:last-child { color: #75817b; font-size: 11px; }
 .action-stage { border-left-color: #c09022; background: #fffaf0; }
 .action-stage > p { margin: 0; color: #66706c; font-size: 10px; line-height: 1.5; }
 .route-stage { border-left-color: #34739a; background: #f1f7fa; }
