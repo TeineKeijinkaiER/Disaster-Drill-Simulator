@@ -1015,8 +1015,8 @@ function App() {
         <div className="brand">
           <div className="brand-mark"><Hospital size={22} /></div>
           <div>
-            <h1>災害机上訓練</h1>
-            <p>2026 多数傷病者受入シミュレーション</p>
+            <h1>TKH災害訓練シミュレーター</h1>
+            <p>多数の被災者を救え</p>
           </div>
         </div>
         <div className="clock-panel" aria-label="訓練時計">
@@ -1265,9 +1265,9 @@ function OpeningScreen({
     <div className="opening-shade" />
     <section className="opening-hero">
       <div className="opening-total-score" aria-label="合計スコア 100点 / 100点"><span>合計スコア</span><strong>100<small>/100</small></strong></div>
-      <div className="opening-brand"><span><Hospital size={21} /></span><strong>災害机上訓練</strong></div>
-      <p className="opening-kicker">HOSPITAL DISASTER TABLETOP SIMULATOR</p>
-      <h1>多数傷病者受入<br />シミュレーション</h1>
+      <div className="opening-brand"><span><Hospital size={21} /></span><strong>災害机上訓練ゲーム</strong></div>
+      <p className="opening-kicker">TKH DISASTER TRAINING SIMULATOR</p>
+      <h1>TKH災害訓練シミュレーター<br /><span>多数の被災者を救え</span></h1>
       <p className="opening-lead">状況を見極め、受入れの流れをつくる。</p>
       <button className="opening-start" onClick={onStart}><CirclePlay size={20} />訓練を開始</button>
       <button className="opening-audio" onClick={onBgmPlay}>{bgmEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}{bgmEnabled ? "オープニングBGM: オン" : "オープニングBGM: オフ"}</button>
