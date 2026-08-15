@@ -98,12 +98,21 @@ interface CapacitySettings {
 }
 
 type BgmMode = "opening" | "training";
+type EffectSound = "move" | "ambulance" | "car" | "alarm" | "buzzer" | "fanfare";
 
 const START_MINUTE = 10 * 60;
 const STORAGE_KEY = "disaster-tabletop-v12";
 const BGM_SOURCES: Record<BgmMode, string> = {
   opening: `${import.meta.env.BASE_URL}bgm-loop.wav`,
   training: `${import.meta.env.BASE_URL}game-bgm-loop.wav?v=3`,
+};
+const EFFECT_SOURCES: Record<EffectSound, string> = {
+  move: `${import.meta.env.BASE_URL}game-sfx-move.wav?v=1`,
+  ambulance: `${import.meta.env.BASE_URL}game-sfx-ambulance.wav?v=1`,
+  car: `${import.meta.env.BASE_URL}game-sfx-car.wav?v=1`,
+  alarm: `${import.meta.env.BASE_URL}game-sfx-alarm.wav?v=1`,
+  buzzer: `${import.meta.env.BASE_URL}game-sfx-buzzer.wav?v=1`,
+  fanfare: `${import.meta.env.BASE_URL}game-sfx-fanfare.wav?v=1`,
 };
 
 const defaultRuntime = (): Record<number, PatientRuntime> => {
@@ -229,8 +238,8 @@ function App() {
   const [bgmEnabled, setBgmEnabled] = useState(true);
   const [bgmVolume, setBgmVolume] = useState(36);
   const [hydrated, setHydrated] = useState(false);
-  const audioContextRef = useRef<AudioContext | null>(null);
   const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
+  const effectAudioRefs = useRef<Partial<Record<EffectSound, HTMLAudioElement>>>({});
   const bgmModeRef = useRef<BgmMode | null>(null);
   const bgmSourceRef = useRef<BgmMode | null>(null);
   const audioUnlockedRef = useRef(false);
@@ -255,20 +264,6 @@ function App() {
     setEvents((current) => [...current, { id: createId("event"), type, label, patientId, atSeconds: clockSeconds }]);
   }, [clockSeconds]);
 
-  const getAudioContext = useCallback(() => {
-    const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return null;
-    if (!audioContextRef.current) audioContextRef.current = new AudioContextClass();
-    return audioContextRef.current;
-  }, []);
-
-  const ensureAudioContext = useCallback(async () => {
-    const context = getAudioContext();
-    if (!context) return null;
-    if (context.state !== "running") await context.resume();
-    return context;
-  }, [getAudioContext]);
-
   const ensureBgmAudio = useCallback((mode: BgmMode) => {
     if (!bgmAudioRef.current || bgmSourceRef.current !== mode) {
       bgmAudioRef.current?.pause();
@@ -282,18 +277,40 @@ function App() {
     return bgmAudioRef.current;
   }, []);
 
-  const unlockAudio = useCallback(async () => {
-    const context = await ensureAudioContext();
-    if (context && !audioUnlockedRef.current) {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      gain.gain.setValueAtTime(0.0001, context.currentTime);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(context.currentTime);
-      oscillator.stop(context.currentTime + 0.01);
-    }
+  const ensureEffectAudio = useCallback((effect: EffectSound) => {
+    const existing = effectAudioRefs.current[effect];
+    if (existing) return existing;
+    const audio = new Audio(EFFECT_SOURCES[effect]);
+    audio.preload = "auto";
+    audio.volume = 0.8;
+    effectAudioRefs.current[effect] = audio;
+    return audio;
+  }, []);
 
+  const primeEffectAudio = useCallback(() => {
+    (Object.keys(EFFECT_SOURCES) as EffectSound[]).forEach((effect) => {
+      const audio = ensureEffectAudio(effect);
+      const originalTime = audio.currentTime;
+      audio.muted = true;
+      void audio.play().then(() => {
+        audio.pause();
+        audio.currentTime = originalTime;
+        audio.muted = false;
+      }).catch(() => {
+        audio.muted = false;
+      });
+    });
+  }, [ensureEffectAudio]);
+
+  const playEffect = useCallback((effect: EffectSound) => {
+    const audio = ensureEffectAudio(effect);
+    audio.pause();
+    audio.currentTime = 0;
+    audio.muted = false;
+    void audio.play().catch(() => primeEffectAudio());
+  }, [ensureEffectAudio, primeEffectAudio]);
+
+  const unlockAudio = useCallback(async () => {
     const audio = ensureBgmAudio(showOpening ? "opening" : "training");
     const wasMuted = audio.muted;
     const originalTime = audio.currentTime;
@@ -308,8 +325,8 @@ function App() {
     } finally {
       audio.muted = wasMuted;
     }
-    return context;
-  }, [ensureAudioContext, ensureBgmAudio, showOpening]);
+    primeEffectAudio();
+  }, [ensureBgmAudio, primeEffectAudio, showOpening]);
 
   const stopBgm = useCallback(() => {
     const audio = bgmAudioRef.current;
@@ -333,124 +350,12 @@ function App() {
     }
   }, [bgmEnabled, bgmVolume, ensureBgmAudio, showOpening]);
 
-  const playMoveSound = useCallback(async () => {
-    const context = await ensureAudioContext();
-    if (!context || context.state !== "running") return;
-    const now = context.currentTime;
-    [523.25, 659.25, 783.99].forEach((frequency, index) => {
-      const start = now + index * 0.04;
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = "triangle";
-      oscillator.frequency.setValueAtTime(frequency, start);
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.028, start + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(start);
-      oscillator.stop(start + 0.2);
-    });
-  }, [ensureAudioContext]);
-
-  const playAlarmSound = useCallback(async () => {
-    const context = await ensureAudioContext();
-    if (!context || context.state !== "running") return;
-    const now = context.currentTime;
-    [980, 740, 980, 740, 980, 740].forEach((frequency, index) => {
-      const start = now + index * 0.17;
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = "square";
-      oscillator.frequency.setValueAtTime(frequency, start);
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.1, start + 0.014);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.14);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(start);
-      oscillator.stop(start + 0.15);
-    });
-  }, [ensureAudioContext]);
-
-  const playAmbulanceSiren = useCallback(async () => {
-    const context = await ensureAudioContext();
-    if (!context || context.state !== "running") return;
-    const now = context.currentTime;
-    [880, 660, 880, 660, 880, 660, 880, 660].forEach((frequency, index) => {
-      const start = now + index * 0.18;
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = "triangle";
-      oscillator.frequency.setValueAtTime(frequency, start);
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.11, start + 0.018);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.15);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(start);
-      oscillator.stop(start + 0.16);
-    });
-  }, [ensureAudioContext]);
-
-  const playCarHorn = useCallback(async () => {
-    const context = await ensureAudioContext();
-    if (!context || context.state !== "running") return;
-    const now = context.currentTime;
-    [0, 0.28].forEach((offset) => {
-      [392, 494].forEach((frequency) => {
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-        oscillator.type = "square";
-        oscillator.frequency.setValueAtTime(frequency, now + offset);
-        gain.gain.setValueAtTime(0.0001, now + offset);
-        gain.gain.exponentialRampToValueAtTime(0.052, now + offset + 0.012);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.2);
-        oscillator.connect(gain);
-        gain.connect(context.destination);
-        oscillator.start(now + offset);
-        oscillator.stop(now + offset + 0.22);
-      });
-    });
-  }, [ensureAudioContext]);
-
-  const playBuzzerSound = useCallback(async () => {
-    const context = await ensureAudioContext();
-    if (!context || context.state !== "running") return;
-    const now = context.currentTime;
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.type = "square";
-    oscillator.frequency.setValueAtTime(220, now);
-    oscillator.frequency.linearRampToValueAtTime(180, now + 0.18);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.045, now + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start(now);
-    oscillator.stop(now + 0.2);
-  }, [ensureAudioContext]);
-
-  const playFanfare = useCallback((acute = false) => {
-    const context = audioContextRef.current;
-    if (!context || context.state !== "running") return;
-    const notes = acute ? [146.83, 110] : [392, 523.25, 659.25];
-    const now = context.currentTime;
-    notes.forEach((frequency, index) => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = acute ? "sawtooth" : "triangle";
-      oscillator.frequency.value = frequency;
-      gain.gain.setValueAtTime(0, now + index * 0.12);
-      gain.gain.linearRampToValueAtTime(acute ? 0.05 : 0.07, now + index * 0.12 + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + index * 0.12 + 0.45);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(now + index * 0.12);
-      oscillator.stop(now + index * 0.12 + 0.5);
-    });
-  }, []);
+  const playMoveSound = useCallback(() => playEffect("move"), [playEffect]);
+  const playAlarmSound = useCallback(() => playEffect("alarm"), [playEffect]);
+  const playAmbulanceSiren = useCallback(() => playEffect("ambulance"), [playEffect]);
+  const playCarHorn = useCallback(() => playEffect("car"), [playEffect]);
+  const playBuzzerSound = useCallback(() => playEffect("buzzer"), [playEffect]);
+  const playFanfare = useCallback((acute = false) => playEffect(acute ? "alarm" : "fanfare"), [playEffect]);
 
   useEffect(() => {
     if (!bgmEnabled) {
@@ -967,7 +872,7 @@ function App() {
   const beginTraining = async () => {
     // Start the in-game track directly in the click handler so browser media policies
     // cannot interrupt playback while React switches away from the opening screen.
-    await ensureAudioContext();
+    primeEffectAudio();
     const audio = ensureBgmAudio("training");
     audio.currentTime = 0;
     audio.muted = false;
@@ -1042,7 +947,9 @@ function App() {
           <span className="remaining-time">経過 {Math.floor(elapsedSeconds / 60)}分</span>
           <span className="goal-pill">Goal {completedPatients}/{scenario.patientIds.length}</span>
           {activeDeteriorations > 0 && <span className="acute-counter">急変 {activeDeteriorations}</span>}
-          <button className="speed-badge" onClick={() => setSpeed((value) => value === 3 ? 1 : value + 1 as 1 | 2 | 3)} title="進行速度を変更">{speed}x</button>
+          <div className="speed-control" role="group" aria-label="進行速度">
+            {([1, 2, 3] as const).map((rate) => <button key={rate} className={speed === rate ? "active" : ""} onClick={() => setSpeed(rate)} title={`${rate}倍速`}>{rate}x</button>)}
+          </div>
           <button className="small-button" onClick={() => addMinutes(1)}>+1分</button>
           <button className="small-button" onClick={() => addMinutes(5)}>+5分</button>
         </div>
