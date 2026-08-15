@@ -231,6 +231,7 @@ function App() {
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [scores, setScores] = useState<ScoreEntry[]>([]);
   const [bgmEnabled, setBgmEnabled] = useState(true);
+  const [bgmVolume, setBgmVolume] = useState(36);
   const [hydrated, setHydrated] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -327,14 +328,14 @@ function App() {
     const requestedMode = mode ?? (showOpening ? "opening" : "training");
     const audio = ensureBgmAudio(requestedMode);
     bgmModeRef.current = requestedMode;
-    audio.volume = requestedMode === "opening" ? 0.56 : 0.62;
+    audio.volume = (requestedMode === "opening" ? 0.72 : 1) * (bgmVolume / 100);
     try {
       await audio.play();
       audioUnlockedRef.current = true;
     } catch {
       // Browser blocked playback until the user interacts.
     }
-  }, [bgmEnabled, ensureBgmAudio, showOpening]);
+  }, [bgmEnabled, bgmVolume, ensureBgmAudio, showOpening]);
 
   const playMoveSound = useCallback(async () => {
     const context = await ensureAudioContext();
@@ -360,19 +361,19 @@ function App() {
     const context = await ensureAudioContext();
     if (!context || context.state !== "running") return;
     const now = context.currentTime;
-    [880, 740, 880, 740].forEach((frequency, index) => {
-      const start = now + index * 0.22;
+    [980, 740, 980, 740, 980, 740].forEach((frequency, index) => {
+      const start = now + index * 0.17;
       const oscillator = context.createOscillator();
       const gain = context.createGain();
-      oscillator.type = "sawtooth";
+      oscillator.type = "square";
       oscillator.frequency.setValueAtTime(frequency, start);
       gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.08, start + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.16);
+      gain.gain.exponentialRampToValueAtTime(0.1, start + 0.014);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.14);
       oscillator.connect(gain);
       gain.connect(context.destination);
       oscillator.start(start);
-      oscillator.stop(start + 0.18);
+      oscillator.stop(start + 0.15);
     });
   }, [ensureAudioContext]);
 
@@ -380,45 +381,40 @@ function App() {
     const context = await ensureAudioContext();
     if (!context || context.state !== "running") return;
     const now = context.currentTime;
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    const cycleSeconds = 0.32;
-    const cycles = 5;
-
-    oscillator.type = "square";
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.09, now + 0.025);
-    for (let index = 0; index < cycles; index += 1) {
-      const start = now + index * cycleSeconds;
-      oscillator.frequency.setValueAtTime(660, start);
-      oscillator.frequency.linearRampToValueAtTime(880, start + cycleSeconds / 2);
-      oscillator.frequency.linearRampToValueAtTime(660, start + cycleSeconds);
-    }
-    const end = now + cycles * cycleSeconds;
-    gain.gain.exponentialRampToValueAtTime(0.0001, end);
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start(now);
-    oscillator.stop(end + 0.02);
+    [880, 660, 880, 660, 880, 660, 880, 660].forEach((frequency, index) => {
+      const start = now + index * 0.18;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "triangle";
+      oscillator.frequency.setValueAtTime(frequency, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.11, start + 0.018);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.15);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(start);
+      oscillator.stop(start + 0.16);
+    });
   }, [ensureAudioContext]);
 
   const playCarHorn = useCallback(async () => {
     const context = await ensureAudioContext();
     if (!context || context.state !== "running") return;
     const now = context.currentTime;
-    [0, 0.22].forEach((offset) => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = "square";
-      oscillator.frequency.setValueAtTime(392, now + offset);
-      oscillator.frequency.linearRampToValueAtTime(440, now + offset + 0.12);
-      gain.gain.setValueAtTime(0.0001, now + offset);
-      gain.gain.exponentialRampToValueAtTime(0.075, now + offset + 0.012);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.14);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(now + offset);
-      oscillator.stop(now + offset + 0.16);
+    [0, 0.28].forEach((offset) => {
+      [392, 494].forEach((frequency) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = "square";
+        oscillator.frequency.setValueAtTime(frequency, now + offset);
+        gain.gain.setValueAtTime(0.0001, now + offset);
+        gain.gain.exponentialRampToValueAtTime(0.052, now + offset + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.2);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(now + offset);
+        oscillator.stop(now + offset + 0.22);
+      });
     });
   }, [ensureAudioContext]);
 
@@ -471,6 +467,12 @@ function App() {
     }
     void startBgm("training");
   }, [bgmEnabled, running, showOpening, startBgm, stopBgm]);
+
+  useEffect(() => {
+    const audio = bgmAudioRef.current;
+    if (!audio || !bgmModeRef.current) return;
+    audio.volume = (bgmModeRef.current === "opening" ? 0.72 : 1) * (bgmVolume / 100);
+  }, [bgmVolume]);
 
   useEffect(() => stopBgm, [stopBgm]);
 
@@ -982,7 +984,7 @@ function App() {
     const audio = ensureBgmAudio("training");
     audio.currentTime = 0;
     audio.muted = false;
-    audio.volume = 0.62;
+    audio.volume = bgmVolume / 100;
     try {
       await audio.play();
       audioUnlockedRef.current = true;
@@ -1098,6 +1100,11 @@ function App() {
           <NumberSetting label="EU" value={capacity.euExisting} max={30} onChange={(value) => setCapacity({ ...capacity, euExisting: value })} />
           <NumberSetting label="OPE室" value={capacity.orGeneralInUse} max={14} onChange={(value) => setCapacity({ ...capacity, orGeneralInUse: value })} />
           <NumberSetting label="AG室" value={capacity.agExisting} max={3} onChange={(value) => setCapacity({ ...capacity, agExisting: value })} />
+          <label className="audio-setting">
+            <span>BGM音量</span>
+            <input type="range" min="0" max="100" step="1" value={bgmVolume} onChange={(event) => setBgmVolume(Number(event.target.value))} />
+            <output>{bgmVolume}%</output>
+          </label>
         </section>
       )}
 
