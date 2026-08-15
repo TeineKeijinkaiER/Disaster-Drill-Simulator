@@ -105,7 +105,7 @@ const START_MINUTE = 10 * 60;
 const STORAGE_KEY = "disaster-tabletop-v11";
 const BGM_SOURCES: Record<BgmMode, string> = {
   opening: `${import.meta.env.BASE_URL}bgm-loop.wav`,
-  training: `${import.meta.env.BASE_URL}game-bgm-loop.wav?v=2`,
+  training: `${import.meta.env.BASE_URL}game-bgm-loop.wav?v=3`,
 };
 
 const defaultRuntime = (scenarioId: ScenarioId): Record<number, PatientRuntime> => {
