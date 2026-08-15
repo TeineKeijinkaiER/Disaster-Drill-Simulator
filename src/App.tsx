@@ -105,7 +105,7 @@ const START_MINUTE = 10 * 60;
 const STORAGE_KEY = "disaster-tabletop-v11";
 const BGM_SOURCES: Record<BgmMode, string> = {
   opening: `${import.meta.env.BASE_URL}bgm-loop.wav`,
-  training: `${import.meta.env.BASE_URL}game-bgm-loop.wav`,
+  training: `${import.meta.env.BASE_URL}game-bgm-loop.wav?v=2`,
 };
 
 const defaultRuntime = (scenarioId: ScenarioId): Record<number, PatientRuntime> => {
@@ -327,7 +327,7 @@ function App() {
     const requestedMode = mode ?? (showOpening ? "opening" : "training");
     const audio = ensureBgmAudio(requestedMode);
     bgmModeRef.current = requestedMode;
-    audio.volume = requestedMode === "opening" ? 0.56 : 0.46;
+    audio.volume = requestedMode === "opening" ? 0.56 : 0.62;
     try {
       await audio.play();
       audioUnlockedRef.current = true;
@@ -976,8 +976,20 @@ function App() {
   const addMinutes = (minutes: number) => advanceTime(minutes * 60);
 
   const beginTraining = async () => {
-    await unlockAudio();
-    await startBgm("training", true);
+    // Start the in-game track directly in the click handler so browser media policies
+    // cannot interrupt playback while React switches away from the opening screen.
+    await ensureAudioContext();
+    const audio = ensureBgmAudio("training");
+    audio.currentTime = 0;
+    audio.muted = false;
+    audio.volume = 0.62;
+    try {
+      await audio.play();
+      audioUnlockedRef.current = true;
+      bgmModeRef.current = "training";
+    } catch {
+      // The header BGM control remains available to retry after any browser block.
+    }
     setShowOpening(false);
     setRunning(true);
     recordEvent("training_started", "訓練を開始");

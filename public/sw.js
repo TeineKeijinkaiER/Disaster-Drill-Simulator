@@ -1,4 +1,4 @@
-const CACHE_NAME = "disaster-drill-shell-v2";
+const CACHE_NAME = "disaster-drill-shell-v3";
 
 self.addEventListener("install", () => self.skipWaiting());
 
