@@ -1,12 +1,11 @@
 import { patients, type Patient, type Triage, type ZoneId } from "./data";
 
-export type ScenarioId = "rapid" | "standard" | "deliberate";
+export type ScenarioId = "notion";
 export type ScoreAxis = "triage" | "clinical" | "flow" | "coordination";
 
 export interface ScenarioPreset {
   id: ScenarioId;
   name: string;
-  durationMinutes: number;
   description: string;
   patientIds: number[];
   arrivalOffsets: Record<number, number>;
@@ -143,45 +142,18 @@ export function isTreatmentAllowed(patient: Patient, option: TreatmentOption) {
 }
 
 const allPatientIds = patients.map((patient) => patient.id);
-const firstArrival = Math.min(...patients.map((patient) => patient.arrivalMinute));
-const lastArrival = Math.max(...patients.map((patient) => patient.arrivalMinute));
-
-function compressedSchedule(durationMinutes: number) {
-  const leadInMinutes = 2;
-  const wrapUpMinutes = 3;
-  const compressedWindow = durationMinutes - leadInMinutes - wrapUpMinutes;
-  const sourceWindow = Math.max(1, lastArrival - firstArrival);
-
-  return Object.fromEntries(patients.map((patient) => [
-    patient.id,
-    leadInMinutes + Math.round(((patient.arrivalMinute - firstArrival) / sourceWindow) * compressedWindow),
-  ]));
-}
+const simulationStartMinute = 10 * 60;
 
 export const scenarios: ScenarioPreset[] = [
   {
-    id: "rapid",
-    name: "高速",
-    durationMinutes: 30,
-    description: "全50症例を高密度投入し、優先順位と滞留管理を重視",
+    id: "notion",
+    name: "Notion症例スケジュール",
+    description: "Notion症例DBの来院時刻に合わせて、全50症例を到着させる",
     patientIds: allPatientIds,
-    arrivalOffsets: compressedSchedule(30),
-  },
-  {
-    id: "standard",
-    name: "スタンダード",
-    durationMinutes: 45,
-    description: "全50症例でトリアージと部門連携をバランスよく訓練",
-    patientIds: allPatientIds,
-    arrivalOffsets: compressedSchedule(45),
-  },
-  {
-    id: "deliberate",
-    name: "検討重視",
-    durationMinutes: 60,
-    description: "全50症例で診療判断と部門連絡の検討時間を確保",
-    patientIds: allPatientIds,
-    arrivalOffsets: compressedSchedule(60),
+    arrivalOffsets: Object.fromEntries(patients.map((patient) => [
+      patient.id,
+      Math.max(0, patient.arrivalMinute - simulationStartMinute),
+    ])),
   },
 ];
 
@@ -199,15 +171,13 @@ export const deteriorationRules: DeteriorationRule[] = [
 ];
 
 export function deteriorationOffset(rule: DeteriorationRule, scenario: ScenarioPreset) {
-  const leadInMinutes = 2;
-  const wrapUpMinutes = 3;
-  const compressedWindow = scenario.durationMinutes - leadInMinutes - wrapUpMinutes;
-  const sourceWindow = Math.max(1, lastArrival - firstArrival);
-  const compressed = leadInMinutes + Math.round(((rule.sourceEventMinute - firstArrival) / sourceWindow) * compressedWindow);
-  return Math.max((scenario.arrivalOffsets[rule.patientId] ?? 0) + 1, Math.min(scenario.durationMinutes - 1, compressed));
+  return Math.max(
+    (scenario.arrivalOffsets[rule.patientId] ?? 0) + 1,
+    rule.sourceEventMinute - simulationStartMinute,
+  );
 }
 
-export const scenarioById = (id: ScenarioId) => scenarios.find((scenario) => scenario.id === id) ?? scenarios[1];
+export const scenarioById = (_id: ScenarioId = "notion") => scenarios[0];
 
 export const scoreAxisLabels: Record<ScoreAxis, string> = {
   triage: "トリアージ",

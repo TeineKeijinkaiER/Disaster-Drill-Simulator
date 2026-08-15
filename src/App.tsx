@@ -50,7 +50,6 @@ import {
   deteriorationRules,
   isTreatmentAllowed,
   scenarioById,
-  scenarios,
   scoreAxisLabels,
   scoreRules,
   scoreTriage,
@@ -58,7 +57,6 @@ import {
   treatmentPlanFor,
   type TreatmentOption,
   type GameEvent,
-  type ScenarioId,
   type ScoreAxis,
   type ScoreEntry,
 } from "./game";
@@ -102,17 +100,16 @@ interface CapacitySettings {
 type BgmMode = "opening" | "training";
 
 const START_MINUTE = 10 * 60;
-const STORAGE_KEY = "disaster-tabletop-v11";
+const STORAGE_KEY = "disaster-tabletop-v12";
 const BGM_SOURCES: Record<BgmMode, string> = {
   opening: `${import.meta.env.BASE_URL}bgm-loop.wav`,
   training: `${import.meta.env.BASE_URL}game-bgm-loop.wav?v=3`,
 };
 
-const defaultRuntime = (scenarioId: ScenarioId): Record<number, PatientRuntime> => {
-  const activeIds = new Set(scenarioById(scenarioId).patientIds);
+const defaultRuntime = (): Record<number, PatientRuntime> => {
   return Object.fromEntries(patients.map((patient) => [
     patient.id,
-    { zone: activeIds.has(patient.id) ? "scheduled" : "complete", role: "active" },
+    { zone: "scheduled", role: "active" },
   ]));
 };
 
@@ -212,12 +209,11 @@ function goalTreatmentRequirements(patient: Patient) {
 }
 
 function App() {
-  const [scenarioId, setScenarioId] = useState<ScenarioId>("standard");
   const [showOpening, setShowOpening] = useState(true);
   const [clockSeconds, setClockSeconds] = useState(START_MINUTE * 60);
   const [running, setRunning] = useState(false);
-  const [speed, setSpeed] = useState<1 | 2>(1);
-  const [runtime, setRuntime] = useState<Record<number, PatientRuntime>>(() => defaultRuntime("standard"));
+  const [speed, setSpeed] = useState<1 | 2 | 3>(1);
+  const [runtime, setRuntime] = useState<Record<number, PatientRuntime>>(() => defaultRuntime());
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showScore, setShowScore] = useState(false);
@@ -239,7 +235,7 @@ function App() {
   const bgmSourceRef = useRef<BgmMode | null>(null);
   const audioUnlockedRef = useRef(false);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  const scenario = useMemo(() => scenarioById(scenarioId), [scenarioId]);
+  const scenario = scenarioById();
   const elapsedSeconds = clockSeconds - START_MINUTE * 60;
   const scoreTotals = useMemo(() => {
     const totals: Record<ScoreAxis, number> = { triage: 0, clinical: 0, flow: 0, coordination: 0 };
@@ -538,15 +534,13 @@ function App() {
     }
     try {
       const parsed = JSON.parse(saved) as {
-        scenarioId?: ScenarioId;
         clockSeconds: number;
         runtime: Record<number, PatientRuntime>;
         capacity: CapacitySettings;
         events?: GameEvent[];
         scores?: ScoreEntry[];
-        speed?: 1 | 2;
+        speed?: 1 | 2 | 3;
       };
-      setScenarioId(parsed.scenarioId ?? "standard");
       setClockSeconds(parsed.clockSeconds);
       setRuntime(parsed.runtime);
       setCapacity({ ...defaultCapacity, ...parsed.capacity });
@@ -562,8 +556,8 @@ function App() {
 
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ scenarioId, clockSeconds, runtime, capacity, events, scores, speed }));
-  }, [scenarioId, clockSeconds, runtime, capacity, events, scores, speed, hydrated]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ clockSeconds, runtime, capacity, events, scores, speed }));
+  }, [clockSeconds, runtime, capacity, events, scores, speed, hydrated]);
 
   useEffect(() => {
     if (!running) return;
@@ -957,22 +951,15 @@ function App() {
     if (typeof patientId === "number" && target) movePatientTo(patientId, target);
   };
 
-  const resetSession = (nextScenarioId: ScenarioId = scenarioId, confirmReset = true) => {
+  const resetSession = (confirmReset = true) => {
     if (confirmReset && !window.confirm("現在の進行状況を消去してシナリオを最初から開始しますか？")) return;
     setRunning(false);
     setClockSeconds(START_MINUTE * 60);
-    setScenarioId(nextScenarioId);
-    setRuntime(defaultRuntime(nextScenarioId));
+    setRuntime(defaultRuntime());
     setSelectedId(null);
     setEvents([]);
     setScores([]);
     localStorage.removeItem(STORAGE_KEY);
-  };
-
-  const changeScenario = (nextScenarioId: ScenarioId) => {
-    if (nextScenarioId === scenarioId) return;
-    if ((events.length > 0 || elapsedSeconds > 0) && !window.confirm("進行状況を消去してシナリオ時間を変更しますか？")) return;
-    resetSession(nextScenarioId, false);
   };
 
   const addMinutes = (minutes: number) => advanceTime(minutes * 60);
@@ -1018,10 +1005,8 @@ function App() {
 
   if (showOpening) {
     return <OpeningScreen
-      scenarioId={scenarioId}
       capacity={capacity}
       bgmEnabled={bgmEnabled}
-      onScenarioChange={changeScenario}
       onCapacityChange={setCapacity}
       onAudioActivate={activateAudio}
       onBgmPlay={async () => {
@@ -1053,11 +1038,11 @@ function App() {
             {running ? <CirclePause /> : <CirclePlay />}
           </button>
           <strong>{formatClock(clockSeconds)}</strong>
-          <span className="scenario-badge">{scenario.name} 到着目安 {scenario.durationMinutes}分</span>
+          <span className="scenario-badge">Notion来院時刻連動</span>
           <span className="remaining-time">経過 {Math.floor(elapsedSeconds / 60)}分</span>
           <span className="goal-pill">Goal {completedPatients}/{scenario.patientIds.length}</span>
           {activeDeteriorations > 0 && <span className="acute-counter">急変 {activeDeteriorations}</span>}
-          <button className="speed-badge" onClick={() => setSpeed((value) => value === 1 ? 2 : 1)} title="進行速度を変更">{speed}x</button>
+          <button className="speed-badge" onClick={() => setSpeed((value) => value === 3 ? 1 : value + 1 as 1 | 2 | 3)} title="進行速度を変更">{speed}x</button>
           <button className="small-button" onClick={() => addMinutes(1)}>+1分</button>
           <button className="small-button" onClick={() => addMinutes(5)}>+5分</button>
         </div>
@@ -1089,11 +1074,6 @@ function App() {
 
       {showSettings && (
         <section className="settings-panel">
-          <div className="scenario-settings">
-            <strong>シナリオ時間</strong>
-            <div>{scenarios.map((item) => <button key={item.id} className={item.id === scenarioId ? "active" : ""} onClick={() => changeScenario(item.id)}>{item.durationMinutes}分</button>)}</div>
-            <span>全50症例・投入順を比例圧縮</span>
-          </div>
           <NumberSetting label="ER重症" value={capacity.erSevereExisting} max={4} onChange={(value) => setCapacity({ ...capacity, erSevereExisting: value })} />
           <NumberSetting label="ER中等症" value={capacity.erModerateExisting} max={7} onChange={(value) => setCapacity({ ...capacity, erModerateExisting: value })} />
           <NumberSetting label="ICU" value={capacity.icuExisting} max={16} onChange={(value) => setCapacity({ ...capacity, icuExisting: value })} />
@@ -1302,25 +1282,20 @@ function ScorePanel({ totals, entries, events, totalScore, completedPatients, go
 }
 
 function OpeningScreen({
-  scenarioId,
   capacity,
   bgmEnabled,
-  onScenarioChange,
   onCapacityChange,
   onAudioActivate,
   onBgmPlay,
   onStart,
 }: {
-  scenarioId: ScenarioId;
   capacity: CapacitySettings;
   bgmEnabled: boolean;
-  onScenarioChange: (id: ScenarioId) => void;
   onCapacityChange: (capacity: CapacitySettings) => void;
   onAudioActivate: () => void;
   onBgmPlay: () => void;
   onStart: () => void;
 }) {
-  const selectedScenario = scenarioById(scenarioId);
   return <main className="opening-screen" onPointerDownCapture={onAudioActivate}>
     <div className="opening-visual" aria-hidden="true"><img src={`${import.meta.env.BASE_URL}opening-hospital.png`} alt="" /></div>
     <div className="opening-shade" />
@@ -1335,7 +1310,7 @@ function OpeningScreen({
     </section>
 
     <section className="opening-options" aria-label="訓練開始前の設定">
-      <div className="opening-option-head"><div><span>TRAINING SETUP</span><h2>開始前設定</h2></div><small>{selectedScenario.name} / {selectedScenario.durationMinutes}分</small></div>
+      <div className="opening-option-head"><div><span>TRAINING SETUP</span><h2>開始前設定</h2></div><small>Notion来院時刻連動</small></div>
       <div className="opening-option-grid">
         <section className="opening-section">
           <div className="opening-section-title"><ClipboardList size={18} /><div><strong>操作方法</strong><span>患者コマをドラッグして移動</span></div></div>
@@ -1353,7 +1328,6 @@ function OpeningScreen({
         </section>
         <section className="opening-section opening-setup-section">
           <div className="opening-section-title"><SlidersHorizontal size={18} /><div><strong>病床・手術室の初期占有</strong><span>災害発生前の使用数を設定</span></div></div>
-          <div className="opening-scenario-row"><span>訓練時間</span><div>{scenarios.map((item) => <button key={item.id} className={item.id === scenarioId ? "active" : ""} onClick={() => onScenarioChange(item.id)}>{item.durationMinutes}分</button>)}</div></div>
           <div className="opening-capacity-grid">
             <NumberSetting label="ER重症" value={capacity.erSevereExisting} max={4} onChange={(value) => onCapacityChange({ ...capacity, erSevereExisting: value })} />
             <NumberSetting label="ER中等症" value={capacity.erModerateExisting} max={7} onChange={(value) => onCapacityChange({ ...capacity, erModerateExisting: value })} />
