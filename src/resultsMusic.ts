@@ -11,6 +11,7 @@ export class ResultsMusic {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
   private timer: number | null = null;
+  private padOscillators: OscillatorNode[] = [];
 
   async unlock() {
     this.context ??= new AudioContext();
@@ -20,14 +21,20 @@ export class ResultsMusic {
   }
 
   start(volume: number) {
-    if (this.timer !== null) {
-      this.setVolume(volume);
+    if (!this.context || !this.master) {
+      void this.unlock().then(() => this.start(volume));
       return;
     }
-    if (!this.context || !this.master) return;
+    if (this.timer !== null) {
+      this.setVolume(volume);
+      void this.context.resume();
+      return;
+    }
     this.setVolume(volume);
+    void this.context.resume();
+    this.startPad();
     this.playPhrase();
-    this.timer = window.setInterval(() => this.playPhrase(), 10_000);
+    this.timer = window.setInterval(() => this.playPhrase(), 9_800);
   }
 
   setVolume(volume: number) {
@@ -38,7 +45,25 @@ export class ResultsMusic {
   stop() {
     if (this.timer !== null) window.clearInterval(this.timer);
     this.timer = null;
+    this.padOscillators.forEach((oscillator) => oscillator.stop());
+    this.padOscillators = [];
     if (this.master && this.context) this.master.gain.setTargetAtTime(0, this.context.currentTime, 0.08);
+  }
+
+  private startPad() {
+    if (!this.context || !this.master || this.padOscillators.length > 0) return;
+    const padGain = this.context.createGain();
+    padGain.gain.value = 0.18;
+    padGain.connect(this.master);
+    [130.81, 196, 261.63].forEach((frequency, index) => {
+      const oscillator = this.context!.createOscillator();
+      oscillator.type = index === 1 ? "triangle" : "sine";
+      oscillator.frequency.value = frequency;
+      oscillator.detune.value = index === 0 ? -4 : index === 2 ? 4 : 0;
+      oscillator.connect(padGain);
+      oscillator.start();
+      this.padOscillators.push(oscillator);
+    });
   }
 
   private playPhrase() {
