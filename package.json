@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "generate:bgm": "node scripts/generate-game-bgm.mjs",
+    "generate:results-bgm": "node scripts/generate-results-bgm.mjs",
     "generate:sfx": "node scripts/generate-sound-effects.mjs",
     "preview": "vite preview"
   },

@@ -115,7 +115,7 @@ const EFFECT_SOURCES: Record<EffectSound, string> = {
   buzzer: `${import.meta.env.BASE_URL}game-sfx-buzzer.wav?v=1`,
   fanfare: `${import.meta.env.BASE_URL}game-sfx-fanfare.wav?v=1`,
 };
-const RESULTS_BGM_SOURCE = `${import.meta.env.BASE_URL}game-sfx-fanfare.wav?v=1`;
+const RESULTS_BGM_SOURCE = `${import.meta.env.BASE_URL}results-bgm-loop.wav?v=1`;
 
 const defaultRuntime = (): Record<number, PatientRuntime> => {
   return Object.fromEntries(patients.map((patient) => [
