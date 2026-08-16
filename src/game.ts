@@ -74,7 +74,7 @@ export interface TreatmentPlan {
 }
 
 export const treatmentOptions: TreatmentOption[] = [
-  "モニター装着", "酸素投与", "気道確保・挿管", "末梢ルート確保", "急速輸液", "輸血",
+  "酸素投与", "気道確保・挿管", "末梢ルート確保", "急速輸液", "輸血",
   "アトロピン投与", "アドレナリン投与", "吸入", "ブドウ糖投与", "吸引", "胸腔ドレーン留置", "骨盤バインダー",
   "骨折部の固定", "頭部挙上", "鎮痛", "創部処置",
 ];
@@ -164,16 +164,12 @@ export const scenarios: ScenarioPreset[] = [
 ];
 
 export const deteriorationRules: DeteriorationRule[] = [
-  { patientId: 1, sourceEventMinute: 10 * 60 + 22, level: "critical", triggerZone: "icu", regardlessOfTreatment: true, message: "ICU入室後、胸腔ドレーン排液量と出血量が増大。血圧低下・呼吸状態悪化" },
-  { patientId: 2, sourceEventMinute: 10 * 60 + 22, level: "warning", message: "TAE後に血圧が再低下し、乳酸値が上昇。輸血継続とICU調整が必要" },
-  { patientId: 3, sourceEventMinute: 10 * 60 + 24, level: "critical", message: "意識レベルが低下し、神経学的所見が悪化" },
-  { patientId: 5, sourceEventMinute: 10 * 60 + 45, level: "critical", message: "腹痛が増悪し、循環動態に変化" },
-  { patientId: 13, sourceEventMinute: 10 * 60 + 38, level: "critical", message: "意識レベル低下と瞳孔所見の変化" },
-  { patientId: 38, sourceEventMinute: 10 * 60 + 50, level: "warning", message: "新たな神経学的所見を認める" },
-  { patientId: 39, sourceEventMinute: 10 * 60 + 50, level: "warning", message: "腹痛が増悪し、再評価が必要" },
-  { patientId: 40, sourceEventMinute: 11 * 60 + 35, level: "critical", message: "循環動態が再び不安定化" },
-  { patientId: 41, sourceEventMinute: 10 * 60 + 55, level: "critical", message: "呼吸状態が急速に悪化" },
-  { patientId: 45, sourceEventMinute: 11 * 60 + 25, level: "critical", message: "搬送後に心停止が発生" },
+  { patientId: 1, sourceEventMinute: 10 * 60 + 22, level: "critical", message: "胸腔ドレーン留置後に持続出血し、循環・呼吸状態が悪化" },
+  { patientId: 3, sourceEventMinute: 10 * 60 + 24, level: "critical", message: "頭部CT後に意識低下と脳ヘルニア徴候が出現" },
+  { patientId: 5, sourceEventMinute: 10 * 60 + 45, level: "critical", message: "軽症ゾーンで腹痛が増悪し、腹腔内出血が顕在化" },
+  { patientId: 14, sourceEventMinute: 10 * 60 + 32, level: "critical", message: "体位変換時に血圧低下と意識消失が出現" },
+  { patientId: 41, sourceEventMinute: 11 * 60 + 2, level: "critical", message: "脂肪塞栓症候群による低酸素・意識低下が出現" },
+  { patientId: 48, sourceEventMinute: 11 * 60 + 35, level: "warning", message: "経過観察中に腹痛が増悪し、腸管・腸間膜損傷が疑われる" },
 ];
 
 export function deteriorationOffset(rule: DeteriorationRule, scenario: ScenarioPreset) {
@@ -200,6 +196,7 @@ export const scoreRules = {
   underTriage: -6,
   overTriage: -2,
   incorrectInitialZone: -2,
+  incorrectGoal: -8,
   delayedDeteriorationReassessment: -4,
   severePatientGoalBonus: 8,
 } as const;

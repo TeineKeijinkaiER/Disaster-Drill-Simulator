@@ -1,4 +1,5 @@
 import { controllerCaseByPatientId, notionCases } from "./notionData";
+import { deteriorationCaseDataByPatientId } from "./deteriorationData";
 
 export type Triage = "red" | "yellow" | "green";
 export type ArrivalMethod = "ambulance" | "car" | "walk";
@@ -58,6 +59,8 @@ export interface Patient {
   learningPoints: string;
   branchConditions: string;
   postErSetting: string;
+  deteriorationScenario: string;
+  deteriorationVitals: string;
   moulage: string;
   originalId: string;
   originalCase: string;
@@ -1782,6 +1785,8 @@ export const patients: Patient[] = notionCases.map((source) => {
     learningPoints: source.learningPoints,
     branchConditions: source.branchConditions,
     postErSetting: source.postErSetting,
+    deteriorationScenario: deteriorationCaseDataByPatientId[source.id]?.scenario ?? "",
+    deteriorationVitals: deteriorationCaseDataByPatientId[source.id]?.vitals ?? "",
     moulage: source.moulage,
     originalId: source.originalId,
     originalCase: source.originalCase,

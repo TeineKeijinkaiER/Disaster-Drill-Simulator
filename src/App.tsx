@@ -61,6 +61,7 @@ import {
   type ScoreEntry,
 } from "./game";
 import { laboratoryResultsByPatientId, type LaboratoryRow } from "./laboratoryResults";
+import { ResultsMusic } from "./resultsMusic";
 
 interface PatientRuntime {
   zone: ZoneId;
@@ -101,6 +102,7 @@ type BgmMode = "opening" | "training";
 type EffectSound = "move" | "ambulance" | "car" | "alarm" | "buzzer" | "fanfare";
 
 const START_MINUTE = 10 * 60;
+const TRAINING_END_SECONDS = 11 * 3600 + 40 * 60;
 const STORAGE_KEY = "disaster-tabletop-v12";
 const BGM_SOURCES: Record<BgmMode, string> = {
   opening: `${import.meta.env.BASE_URL}bgm-loop.wav`,
@@ -173,12 +175,8 @@ function arrivalMobility(patient: Patient) {
   return "車内での移動可否は未確認";
 }
 
-function isVehicleBound(patient: Patient) {
-  return patient.method === "car" && arrivalMobility(patient).includes("自力移動できない");
-}
-
 function isGoalZone(zone: ZoneId) {
-  return zone === "icu" || zone === "eu" || zone === "general" || zone === "complete";
+  return zone === "ag" || zone === "or" || zone === "icu" || zone === "eu" || zone === "general" || zone === "complete";
 }
 
 type TestTab = "bloodGas" | "specimen" | "ecg" | "imaging";
@@ -217,6 +215,52 @@ function goalTreatmentRequirements(patient: Patient) {
   return requirements;
 }
 
+function destinationCallFor(patient: Patient, target: ZoneId): TreatmentOption | null {
+  if (target === "or") return "手術室/麻酔科コール";
+  if (target === "icu") return "ICUコール";
+  if (target === "ag") return isTreatmentAllowed(patient, "循環器科コール") ? "循環器科コール" : "放射線科コール";
+  return null;
+}
+
+function departmentCallLabel(option: TreatmentOption) {
+  if (option === "放射線科コール") return "放射線科/AG室";
+  if (option === "循環器科コール") return "循環器/AG室";
+  return option.replace("コール", "");
+}
+
+function goalLabelFor(target: ZoneId) {
+  if (target === "ag") return "AG室";
+  if (target === "or") return "手術室";
+  if (target === "icu") return "ICU";
+  if (target === "eu") return "EU";
+  if (target === "general") return "一般床";
+  if (target === "complete") return "帰宅";
+  return zoneLabels[target];
+}
+
+function isCorrectGoal(patient: Patient, target: ZoneId) {
+  if (target === "ag") return patient.opeAg.includes("AG");
+  if (target === "or") return patient.opeAg.includes("OPE");
+  if (target === "complete") return patient.destination.includes("帰宅");
+  if (target === "general") return patient.destination.includes("一般");
+  if (target === "icu") return patient.destination.includes("ICU");
+  if (target === "eu") return patient.destination.includes("EU");
+  return false;
+}
+
+function goalTreatmentRequirementsFor(patient: Patient, target: ZoneId) {
+  const ignoredCalls: TreatmentOption[] = target === "ag"
+    ? ["ICUコール", "手術室/麻酔科コール"]
+    : target === "or"
+      ? ["ICUコール", "放射線科コール", "循環器科コール"]
+      : target === "icu"
+        ? ["手術室/麻酔科コール", "放射線科コール", "循環器科コール"]
+        : [];
+  return goalTreatmentRequirements(patient)
+    .filter((option) => option !== "モニター装着")
+    .filter((option) => !ignoredCalls.includes(option));
+}
+
 function App() {
   const [showOpening, setShowOpening] = useState(true);
   const [clockSeconds, setClockSeconds] = useState(START_MINUTE * 60);
@@ -235,11 +279,14 @@ function App() {
   const [capacity, setCapacity] = useState<CapacitySettings>(defaultCapacity);
   const [events, setEvents] = useState<GameEvent[]>([]);
   const [scores, setScores] = useState<ScoreEntry[]>([]);
+  const [sessionEnded, setSessionEnded] = useState(false);
+  const [showFinalReport, setShowFinalReport] = useState(false);
   const [bgmEnabled, setBgmEnabled] = useState(true);
   const [bgmVolume, setBgmVolume] = useState(36);
   const [hydrated, setHydrated] = useState(false);
   const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
   const effectAudioRefs = useRef<Partial<Record<EffectSound, HTMLAudioElement>>>({});
+  const resultsMusicRef = useRef<ResultsMusic | null>(null);
   const bgmModeRef = useRef<BgmMode | null>(null);
   const bgmSourceRef = useRef<BgmMode | null>(null);
   const audioUnlockedRef = useRef(false);
@@ -335,6 +382,12 @@ function App() {
     audio.currentTime = 0;
     bgmModeRef.current = null;
   }, []);
+  const stopResultsMusic = useCallback(() => resultsMusicRef.current?.stop(), []);
+  const startResultsMusic = useCallback(() => {
+    if (!bgmEnabled) return;
+    resultsMusicRef.current ??= new ResultsMusic();
+    resultsMusicRef.current.start(bgmVolume / 100);
+  }, [bgmEnabled, bgmVolume]);
 
   const startBgm = useCallback(async (mode?: BgmMode, force = false) => {
     if (!bgmEnabled && !force) return;
@@ -351,31 +404,39 @@ function App() {
   }, [bgmEnabled, bgmVolume, ensureBgmAudio, showOpening]);
 
   const playMoveSound = useCallback(() => playEffect("move"), [playEffect]);
-  const playAlarmSound = useCallback(() => playEffect("alarm"), [playEffect]);
   const playAmbulanceSiren = useCallback(() => playEffect("ambulance"), [playEffect]);
   const playCarHorn = useCallback(() => playEffect("car"), [playEffect]);
+  const playAlarmSound = useCallback(() => playEffect("alarm"), [playEffect]);
   const playBuzzerSound = useCallback(() => playEffect("buzzer"), [playEffect]);
-  const playFanfare = useCallback((acute = false) => playEffect(acute ? "alarm" : "fanfare"), [playEffect]);
+  const playFanfare = useCallback(() => playEffect("fanfare"), [playEffect]);
 
   useEffect(() => {
     if (!bgmEnabled) {
       stopBgm();
+      stopResultsMusic();
       return;
     }
+    if (sessionEnded) {
+      stopBgm();
+      startResultsMusic();
+      return;
+    }
+    stopResultsMusic();
     if (showOpening) {
       void startBgm("opening");
       return;
     }
     void startBgm("training");
-  }, [bgmEnabled, running, showOpening, startBgm, stopBgm]);
+  }, [bgmEnabled, running, sessionEnded, showOpening, startBgm, startResultsMusic, stopBgm, stopResultsMusic]);
 
   useEffect(() => {
     const audio = bgmAudioRef.current;
     if (!audio || !bgmModeRef.current) return;
     audio.volume = (bgmModeRef.current === "opening" ? 0.72 : 1) * (bgmVolume / 100);
+    resultsMusicRef.current?.setVolume(bgmVolume / 100);
   }, [bgmVolume]);
 
-  useEffect(() => stopBgm, [stopBgm]);
+  useEffect(() => () => { stopBgm(); stopResultsMusic(); }, [stopBgm, stopResultsMusic]);
 
   useEffect(() => {
     if (!workflowNotice) return;
@@ -445,6 +506,8 @@ function App() {
         events?: GameEvent[];
         scores?: ScoreEntry[];
         speed?: 1 | 2 | 3;
+        sessionEnded?: boolean;
+        showFinalReport?: boolean;
       };
       setClockSeconds(parsed.clockSeconds);
       setRuntime(parsed.runtime);
@@ -452,6 +515,8 @@ function App() {
       setEvents(parsed.events ?? []);
       setScores(parsed.scores ?? []);
       setSpeed(parsed.speed ?? 1);
+      setSessionEnded(parsed.sessionEnded ?? false);
+      setShowFinalReport(parsed.showFinalReport ?? false);
     } catch {
       localStorage.removeItem(STORAGE_KEY);
     } finally {
@@ -461,8 +526,8 @@ function App() {
 
   useEffect(() => {
     if (!hydrated) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ clockSeconds, runtime, capacity, events, scores, speed }));
-  }, [clockSeconds, runtime, capacity, events, scores, speed, hydrated]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ clockSeconds, runtime, capacity, events, scores, speed, sessionEnded, showFinalReport }));
+  }, [clockSeconds, runtime, capacity, events, scores, speed, sessionEnded, showFinalReport, hydrated]);
 
   useEffect(() => {
     if (!running) return;
@@ -483,7 +548,7 @@ function App() {
         const patient = patients.find((item) => item.id === id)!;
         const initialZone: ZoneId = patient.method === "ambulance"
           ? "ambulance"
-          : patient.method === "walk" || !isVehicleBound(patient) ? "triage" : "walkin";
+          : patient.method === "car" ? "walkin" : "triage";
         next[id] = {
           ...current[id],
           zone: initialZone,
@@ -512,18 +577,21 @@ function App() {
   }, [clockSeconds, elapsedSeconds, playAmbulanceSiren, playCarHorn, runtime, scenario]);
 
   useEffect(() => {
-    if (!running || completedPatients < scenario.patientIds.length) return;
+    if (showOpening || sessionEnded || clockSeconds < TRAINING_END_SECONDS) return;
     setRunning(false);
-    recordEvent("session_ended", "全症例がゴールに到達し、シミュレーションを完了");
-    setWorkflowNotice("全症例ゴール到達！ 最終スコアを確認してください");
-    playFanfare(false);
-  }, [completedPatients, playFanfare, recordEvent, running, scenario.patientIds.length]);
+    setSessionEnded(true);
+    setShowScore(true);
+    setShowFinalReport(true);
+    recordEvent("session_ended", "11:40となり、訓練を終了。結果発表へ移行");
+    setWorkflowNotice("11:40 訓練終了。結果発表です");
+    playFanfare();
+  }, [clockSeconds, playFanfare, recordEvent, sessionEnded, showOpening]);
 
   useEffect(() => {
     const elapsedMinutes = elapsedSeconds / 60;
     for (const id of scenario.patientIds) {
       const state = runtime[id];
-      if (!state || state.zone === "scheduled" || state.zone === "complete" || state.assignedTriage) continue;
+      if (!state || state.zone === "scheduled" || isGoalZone(state.zone) || state.assignedTriage) continue;
       if (elapsedMinutes - scenario.arrivalOffsets[id] < scoreRules.delayedPrimaryTriageMinutes) continue;
       applyScore({ axis: "triage", points: scoreRules.delayedPrimaryTriage, reason: `来院後${scoreRules.delayedPrimaryTriageMinutes}分以上、一次トリアージ未完了`, patientId: id }, `untriaged-${id}`);
     }
@@ -533,7 +601,7 @@ function App() {
     const elapsedMinutes = elapsedSeconds / 60;
     const dueRules = deteriorationRules.filter((rule) => {
       const state = runtime[rule.patientId];
-      return state && state.zone !== "scheduled" && state.zone !== "complete" && !state.deteriorationLevel
+      return state && state.zone !== "scheduled" && !isGoalZone(state.zone) && !state.deteriorationLevel
         && (!rule.triggerZone || state.zone === rule.triggerZone)
         && (rule.regardlessOfTreatment || !treatmentPlanFor(rule.patientId) || !state.treatmentComplete)
         && elapsedMinutes >= deteriorationOffset(rule, scenario);
@@ -574,7 +642,7 @@ function App() {
       const state = runtime[id];
       const plan = treatmentPlanFor(id);
       const clinicalPhase = state?.erAssessmentComplete || state?.secondaryTriageComplete || state?.zone === "light-room";
-      return state && plan && clinicalPhase && !state.treatmentComplete && !state.treatmentDeteriorationTriggered
+      return state && !isGoalZone(state.zone) && plan && clinicalPhase && !state.treatmentComplete && !state.treatmentDeteriorationTriggered
         && !state.deteriorationLevel && state.zoneEnteredAt !== undefined
         && clockSeconds - state.zoneEnteredAt >= plan.deadlineSeconds;
     });
@@ -624,7 +692,7 @@ function App() {
   );
   const canSubmitPrimaryTriage = Boolean(
     selectedPatient && selectedState &&
-    selectedState.zone !== "scheduled" && selectedState.zone !== "complete" &&
+    selectedState.zone !== "scheduled" && !isGoalZone(selectedState.zone) &&
     (selectedPatient.method === "ambulance" || selectedState.zone === "triage"),
   );
   const selectedTreatmentPlan = selectedPatient ? treatmentPlanFor(selectedPatient.id) : undefined;
@@ -632,15 +700,39 @@ function App() {
   const zonePatients = (zone: ZoneId) => patients.filter((patient) => runtime[patient.id]?.zone === zone);
   const disasterCount = (zone: ZoneId) => zonePatients(zone).length;
 
+  const finiteCapacityFor = (zone: ZoneId) => {
+    if (zone === "er-severe") return { used: capacity.erSevereExisting + disasterCount(zone), total: 4 };
+    if (zone === "er-moderate") return { used: capacity.erModerateExisting + disasterCount(zone), total: 7 };
+    if (zone === "er-imaging") return { used: disasterCount(zone), total: 1 };
+    if (zone === "light-imaging") return { used: disasterCount(zone), total: 1 };
+    if (zone === "light-room") return { used: disasterCount(zone), total: 4 };
+    if (zone === "ag") return { used: capacity.agExisting + disasterCount(zone), total: 3 };
+    if (zone === "or") return { used: capacity.orGeneralInUse + disasterCount(zone), total: 14 };
+    if (zone === "icu") return { used: capacity.icuExisting + disasterCount(zone), total: 16 };
+    if (zone === "eu") return { used: capacity.euExisting + disasterCount(zone), total: 30 };
+    return null;
+  };
+
+  const hasCapacityFor = (target: ZoneId, currentZone: ZoneId) => {
+    const capacityInfo = finiteCapacityFor(target);
+    if (!capacityInfo) return true;
+    const movingWithinSameZone = currentZone === target ? 1 : 0;
+    return capacityInfo.used - movingWithinSameZone < capacityInfo.total;
+  };
+
   const movePatientTo = (patientId: number, target: ZoneId) => {
     const state = runtime[patientId];
     const patient = patients.find((item) => item.id === patientId);
     if (!state || !patient || target === "transit" || target === "scheduled") return;
+    if (!hasCapacityFor(target, state.zone)) {
+      setTreatmentFeedback("看護師: 入室できません");
+      return;
+    }
     if (isGoalZone(target) && !isGoalZone(state.zone)) {
-      const missingTreatments = goalTreatmentRequirements(patient)
+      const missingTreatments = goalTreatmentRequirementsFor(patient, target)
         .filter((option) => !state.appliedTreatments?.includes(option));
       if (missingTreatments.length > 0) {
-        setWorkflowNotice(`症例${patientId}: ゴール前に${missingTreatments.join("・")}を実施してください`);
+        setWorkflowNotice(`症例${patientId}: ゴール前に${missingTreatments.map(departmentCallLabel).join("・")}を実施してください`);
         return;
       }
     }
@@ -661,22 +753,22 @@ function App() {
       && target !== "er-severe" && target !== "er-moderate" && !target.startsWith("light-");
     if (leavingErCare) {
       const applied = state.appliedTreatments ?? [];
-      const missing = ["モニター装着", "末梢ルート確保"].filter((option) => !applied.includes(option as TreatmentOption));
+      const missing = ["末梢ルート確保"].filter((option) => !applied.includes(option as TreatmentOption));
       if (missing.length > 0) {
         setWorkflowNotice(`症例${patientId}: 救外から進む前に${missing.join("・")}を実施してください`);
         return;
       }
     }
-    const destinationCall = target === "or" ? "手術室/麻酔科コール" : target === "icu" ? "ICUコール" : null;
+    const destinationCall = destinationCallFor(patient, target);
     if (destinationCall) {
       const calledAt = state.treatmentAppliedAt?.[destinationCall];
       if (calledAt === undefined) {
-        setWorkflowNotice(`症例${patientId}: ${destinationCall}が必要です`);
+        setWorkflowNotice(`症例${patientId}: ${departmentCallLabel(destinationCall)}への連絡が必要です`);
         return;
       }
       const waitRemaining = 5 * 60 - (clockSeconds - calledAt);
       if (waitRemaining > 0) {
-        setWorkflowNotice(`症例${patientId}: ${destinationCall.replace("コール", "")}受入準備中です。あと${Math.ceil(waitRemaining / 60)}分で入室できます`);
+        setWorkflowNotice(`症例${patientId}: ${departmentCallLabel(destinationCall)}受入準備中です。あと${Math.ceil(waitRemaining / 60)}分で入室できます`);
         return;
       }
     }
@@ -692,11 +784,24 @@ function App() {
 
     setRuntime((current) => {
       if (enteringErImaging && Object.entries(current).some(([id, item]) => Number(id) !== patientId && item.zone === "er-imaging")) return current;
+      const enteringErCare = target === "er-severe" || target === "er-moderate";
+      const appliedTreatments = enteringErCare
+        ? [...new Set([...(current[patientId].appliedTreatments ?? []), "モニター装着" as TreatmentOption])]
+        : current[patientId].appliedTreatments;
+      const plan = treatmentPlanFor(patientId);
+      const treatmentComplete = plan && appliedTreatments
+        ? plan.required.every((required) => appliedTreatments.includes(required)) || current[patientId].treatmentComplete
+        : current[patientId].treatmentComplete;
       const stageUpdates = needsTransit ? {} : {
         primaryTriageComplete: current[patientId].primaryTriageComplete,
         secondaryTriageComplete: current[patientId].secondaryTriageComplete || target === "light-secondary",
         erAssessmentComplete: current[patientId].erAssessmentComplete || target === "er-severe" || target === "er-moderate",
-        revealedVitals: current[patientId].revealedVitals || target === "light-secondary",
+        revealedVitals: current[patientId].revealedVitals || target === "light-secondary" || target === "er-severe" || target === "er-moderate",
+        appliedTreatments,
+        treatmentComplete,
+        treatmentAppliedAt: enteringErCare
+          ? { ...(current[patientId].treatmentAppliedAt ?? {}), "モニター装着": current[patientId].treatmentAppliedAt?.["モニター装着"] ?? clockSeconds }
+          : current[patientId].treatmentAppliedAt,
       };
       const nextState = needsTransit
         ? { ...current[patientId], ...stageUpdates, zone: "transit" as ZoneId, transitTo: target, transitRemaining: 240, zoneEnteredAt: clockSeconds }
@@ -715,11 +820,18 @@ function App() {
     }
     setSelectedId(patientId);
     if (isGoalZone(target) && !isGoalZone(state.zone)) {
-      const goalLabel = target === "complete" ? "帰宅" : "入院";
-      applyScore({ axis: "flow", points: 20, reason: `${goalLabel}まで搬送完了`, patientId }, `goal-${patientId}`);
+      const goalLabel = goalLabelFor(target);
+      const correctGoal = isCorrectGoal(patient, target);
+      applyScore({
+        axis: "flow",
+        points: correctGoal ? 20 : scoreRules.incorrectGoal,
+        reason: correctGoal ? `${goalLabel}まで搬送完了` : `想定と異なるゴール（${goalLabel}）`,
+        patientId,
+        countsTowardTotal: !correctGoal,
+      }, `goal-${patientId}`);
       const isSeverePatient = patient.triage === "red";
       const severeCareComplete = !treatmentPlanFor(patientId) || state.treatmentComplete;
-      if (isSeverePatient && severeCareComplete) {
+      if (correctGoal && isSeverePatient && severeCareComplete) {
         applyScore({
           axis: "clinical",
           points: scoreRules.severePatientGoalBonus,
@@ -729,10 +841,12 @@ function App() {
         }, `severe-goal-bonus-${patientId}`);
       }
       recordEvent("goal_reached", `症例${patientId}: ${goalLabel}ゴール到達`, patientId);
-      setWorkflowNotice(isSeverePatient && severeCareComplete
+      setWorkflowNotice(!correctGoal
+        ? `症例${patientId}　ゴール不一致: ${goalLabel}（${scoreRules.incorrectGoal}点）`
+        : isSeverePatient && severeCareComplete
         ? `症例${patientId}　重症対応ゴール！ ボーナス +${scoreRules.severePatientGoalBonus}点`
         : `症例${patientId}　ゴール到達！`);
-      playFanfare(false);
+      playFanfare();
     }
   };
 
@@ -864,6 +978,9 @@ function App() {
     setSelectedId(null);
     setEvents([]);
     setScores([]);
+    setSessionEnded(false);
+    setShowFinalReport(false);
+    stopResultsMusic();
     localStorage.removeItem(STORAGE_KEY);
   };
 
@@ -995,7 +1112,8 @@ function App() {
         </section>
       )}
 
-      {showScore && <ScorePanel totals={scoreTotals} entries={scores} events={events} totalScore={totalScore} completedPatients={completedPatients} goalCount={scenario.patientIds.length} />}
+      {showScore && <ScorePanel totals={scoreTotals} entries={scores} events={events} totalScore={totalScore} completedPatients={completedPatients} goalCount={scenario.patientIds.length} finalReport={showFinalReport} />}
+      {showFinalReport && <FinalResultsScreen totalScore={totalScore} completedPatients={completedPatients} goalCount={scenario.patientIds.length} scores={scores} onClose={() => setShowFinalReport(false)} onRestart={() => resetSession(false)} />}
       {(workflowNotice || treatmentFeedback) && <div className="notice-stack" role="status">
         {workflowNotice && <div className="workflow-notice acute-notice">{workflowNotice}</div>}
         {treatmentFeedback && <div className="workflow-notice nurse-notice"><strong>看護師</strong><span>{treatmentFeedback.replace("看護師: ", "")}</span></div>}
@@ -1037,8 +1155,8 @@ function App() {
             </div>
             <div className="flow-arrow"><ChevronRight /></div>
             <div className="destination-column">
-              <Destination id="ag" title="AG室" subtitle="3室" icon={ScanLine} patients={zonePatients("ag")} used={capacity.agExisting + disasterCount("ag")} total={3} runtime={runtime} onSelect={setSelectedId} dragOver={dragOverZone === "ag"} />
-              <Destination id="or" title="OPE室" subtitle="14床" icon={DoorOpen} patients={zonePatients("or")} used={capacity.orGeneralInUse + disasterCount("or")} total={14} runtime={runtime} onSelect={setSelectedId} dragOver={dragOverZone === "or"} />
+              <Destination id="ag" title="AG室" subtitle="3室" icon={ScanLine} patients={zonePatients("ag")} used={capacity.agExisting + disasterCount("ag")} total={3} runtime={runtime} onSelect={setSelectedId} dragOver={dragOverZone === "ag"} countOnly />
+              <Destination id="or" title="OPE室" subtitle="14床" icon={DoorOpen} patients={zonePatients("or")} used={capacity.orGeneralInUse + disasterCount("or")} total={14} runtime={runtime} onSelect={setSelectedId} dragOver={dragOverZone === "or"} countOnly />
               <Destination id="icu" title="ICU" subtitle="集中治療室" icon={BedDouble} patients={zonePatients("icu")} used={capacity.icuExisting + disasterCount("icu")} total={16} runtime={runtime} onSelect={setSelectedId} dragOver={dragOverZone === "icu"} compact countOnly />
               <Destination id="eu" title="EU" subtitle="救急病棟" icon={BedDouble} patients={zonePatients("eu")} used={capacity.euExisting + disasterCount("eu")} total={30} runtime={runtime} onSelect={setSelectedId} dragOver={dragOverZone === "eu"} compact countOnly />
               <Destination id="general" title="一般床" subtitle="制限なし" icon={BedDouble} patients={zonePatients("general")} runtime={runtime} onSelect={setSelectedId} dragOver={dragOverZone === "general"} unlimited compact countOnly />
@@ -1059,7 +1177,17 @@ function App() {
                   <div><dt>現在</dt><dd>{zoneLabels[selectedState.zone]}</dd></div>
                   {hasPrimaryTriage && <div><dt>一次判定</dt><dd>{selectedState.assignedTriage === "red" ? "赤" : selectedState.assignedTriage === "yellow" ? "黄" : "緑"}</dd></div>}
                 </dl>
-                {selectedState.deteriorationLevel && <section className={`deterioration-alert ${selectedState.deteriorationLevel} ${selectedState.deteriorationResolved ? "resolved" : selectedState.deteriorationAcknowledged ? "acknowledged" : ""}`}><div><strong>{selectedState.deteriorationResolved ? "急変対応完了" : selectedState.deteriorationAcknowledged ? "急変対応中" : "患者が急変"}</strong><span>{selectedState.deteriorationMessage}</span></div>{!selectedState.deteriorationAcknowledged && <button onClick={() => acknowledgeDeterioration(selectedPatient.id)}>再評価して対応開始</button>}</section>}
+                {selectedState.deteriorationLevel && (
+                  <section className={`deterioration-alert ${selectedState.deteriorationLevel} ${selectedState.deteriorationResolved ? "resolved" : selectedState.deteriorationAcknowledged ? "acknowledged" : ""}`}>
+                    <div>
+                      <strong>{selectedState.deteriorationResolved ? "急変対応完了" : selectedState.deteriorationAcknowledged ? "急変対応中" : "患者が急変"}</strong>
+                      <span>{selectedState.deteriorationMessage}</span>
+                      {selectedPatient.deteriorationScenario && <DetailBlock label="急変時想定" value={selectedPatient.deteriorationScenario} />}
+                      {selectedPatient.deteriorationVitals && <DetailBlock label="急変時バイタル・所見" value={selectedPatient.deteriorationVitals} prominent />}
+                    </div>
+                    {!selectedState.deteriorationAcknowledged && <button onClick={() => acknowledgeDeterioration(selectedPatient.id)}>再評価して対応開始</button>}
+                  </section>
+                )}
                 <div className="detail-sections">
                   {selectedPatient.method === "ambulance" ? (
                     <section className="information-stage prehospital-stage ambulance-information">
@@ -1086,7 +1214,11 @@ function App() {
                     <span>診療ゾーン到着後の情報</span>
                     <section className="post-arrival-section">
                       <div className="post-arrival-buttons">
-                        <button className={selectedState.revealedVitals ? "completed" : ""} onClick={() => { revealInformation(selectedPatient.id, "vitals"); selectTreatment(selectedPatient.id, "モニター装着"); setPostArrivalInfo("vitals"); }}>{selectedState.revealedVitals ? "モニター確認済み" : "モニター装着"}</button>
+                        <button className={selectedState.revealedVitals ? "completed" : ""} onClick={() => {
+                          revealInformation(selectedPatient.id, "vitals");
+                          if (!selectedState.appliedTreatments?.includes("モニター装着")) selectTreatment(selectedPatient.id, "モニター装着");
+                          setPostArrivalInfo("vitals");
+                        }}>{selectedState.revealedVitals ? "モニター確認済み" : "モニター装着"}</button>
                         <button className={selectedState.revealedExam ? "completed" : ""} onClick={() => { revealInformation(selectedPatient.id, "exam"); setPostArrivalInfo("exam"); }}>{selectedState.revealedExam ? "診察済み" : "診察を実施"}</button>
                       </div>
                       {postArrivalInfo === "vitals" && selectedState.revealedVitals && <div className="post-arrival-content monitor-result"><div className="result-source"><strong>モニター画面</strong><span>QRコード提示相当</span></div><p>{selectedPatient.vitals}</p></div>}
@@ -1114,23 +1246,24 @@ function App() {
                     <div className="treatment-actions">
                       {treatmentOptions.map((option) => <button key={option} className={selectedState.appliedTreatments?.includes(option) ? "completed" : ""} onClick={() => selectTreatment(selectedPatient.id, option)}>{option}</button>)}
                     </div>
-                    <details className="department-call-group collapsible-stage">
-                      <summary>各科・各部署コール</summary>
-                      <div className="treatment-actions department-actions">
-                        {departmentCallOptions.map((option) => {
-                          const calledAt = selectedState.treatmentAppliedAt?.[option];
-                          const ready = calledAt !== undefined && clockSeconds - calledAt >= 5 * 60;
-                          const isTimedDestination = option === "手術室/麻酔科コール" || option === "ICUコール";
-                          const label = calledAt === undefined
-                            ? option.replace("コール", "")
-                            : isTimedDestination && !ready
-                              ? `${option.replace("コール", "")} 準備中（あと${Math.ceil((5 * 60 - (clockSeconds - calledAt)) / 60)}分）`
-                              : `${option.replace("コール", "")} 連絡済み`;
-                          return <button key={option} className={selectedState.appliedTreatments?.includes(option) ? `completed ${ready ? "ready" : ""}` : ""} onClick={() => selectTreatment(selectedPatient.id, option)}>{label}</button>;
-                        })}
-                      </div>
-                    </details>
                     {selectedState.treatmentComplete && <div className="treatment-complete">必要な初期治療を完了しました</div>}
+                  </details>}
+                  {canClinicalAssess && <details className="information-stage treatment-stage department-call-group collapsible-stage">
+                    <summary>各科・各部署コール</summary>
+                    <div className="treatment-actions department-actions">
+                      {departmentCallOptions.map((option) => {
+                        const calledAt = selectedState.treatmentAppliedAt?.[option];
+                        const ready = calledAt !== undefined && clockSeconds - calledAt >= 5 * 60;
+                        const isTimedDestination = option === "手術室/麻酔科コール" || option === "ICUコール" || option === "放射線科コール" || option === "循環器科コール";
+                        const baseLabel = departmentCallLabel(option);
+                        const label = calledAt === undefined
+                          ? baseLabel
+                          : isTimedDestination && !ready
+                            ? `${baseLabel} 準備中（あと${Math.ceil((5 * 60 - (clockSeconds - calledAt)) / 60)}分）`
+                            : `${baseLabel} 連絡済み`;
+                        return <button key={option} className={selectedState.appliedTreatments?.includes(option) ? `completed ${ready ? "ready" : ""}` : ""} onClick={() => selectTreatment(selectedPatient.id, option)}>{label}</button>;
+                      })}
+                    </div>
                   </details>}
                 </div>
                 {selectedState.zone === "transit" && (
@@ -1171,21 +1304,45 @@ function LaboratoryModal({ patient, kind, rows, onClose }: { patient: Patient; k
   </div>;
 }
 
-function ScorePanel({ totals, entries, events, totalScore, completedPatients, goalCount }: { totals: Record<ScoreAxis, number>; entries: ScoreEntry[]; events: GameEvent[]; totalScore: number; completedPatients: number; goalCount: number }) {
+function ScorePanel({ totals, entries, events, totalScore, completedPatients, goalCount, finalReport }: { totals: Record<ScoreAxis, number>; entries: ScoreEntry[]; events: GameEvent[]; totalScore: number; completedPatients: number; goalCount: number; finalReport?: boolean }) {
+  const deductions = entries.filter((entry) => entry.points < 0);
+  const bonuses = entries.filter((entry) => entry.points > 0 && entry.countsTowardTotal);
   return <section className="score-panel" aria-label="スコアと操作履歴">
     <div className="score-summary">
       <div className="score-total-cell"><span>総合スコア</span><strong>{totalScore}</strong><small>ゴール {completedPatients}/{goalCount}</small></div>
       {(Object.keys(scoreAxisLabels) as ScoreAxis[]).map((axis) => <div key={axis}><span>{scoreAxisLabels[axis]}</span><strong className={totals[axis] < 0 ? "negative" : ""}>{totals[axis]}</strong></div>)}
     </div>
     <div className="score-feed">
-      <strong>直近の評価</strong>
-      {entries.length === 0 ? <span>評価はまだありません</span> : entries.slice(-5).reverse().map((entry) => <span key={entry.id}><time>{formatClock(entry.atSeconds)}</time><b className={entry.points < 0 ? "negative" : ""}>{entry.points > 0 ? `+${entry.points}` : entry.points}</b>{entry.patientId ? `症例${entry.patientId} ` : ""}{entry.reason}</span>)}
+      <strong>{finalReport ? "結果発表: 減点" : "直近の評価"}</strong>
+      {finalReport
+        ? deductions.length === 0 ? <span>減点はありません</span> : deductions.slice(-6).reverse().map((entry) => <span key={entry.id}><time>{formatClock(entry.atSeconds)}</time><b className="negative">{entry.points}</b>{entry.patientId ? `症例${entry.patientId} ` : ""}{entry.reason}</span>)
+        : entries.length === 0 ? <span>評価はまだありません</span> : entries.slice(-5).reverse().map((entry) => <span key={entry.id}><time>{formatClock(entry.atSeconds)}</time><b className={entry.points < 0 ? "negative" : ""}>{entry.points > 0 ? `+${entry.points}` : entry.points}</b>{entry.patientId ? `症例${entry.patientId} ` : ""}{entry.reason}</span>)}
     </div>
     <div className="event-feed">
-      <strong>操作履歴</strong>
-      {events.length === 0 ? <span>訓練開始後の操作が記録されます</span> : events.slice(-5).reverse().map((event) => <span key={event.id}><time>{formatClock(event.atSeconds)}</time>{event.label}</span>)}
+      <strong>{finalReport ? "結果発表: ボーナス" : "操作履歴"}</strong>
+      {finalReport
+        ? bonuses.length === 0 ? <span>ボーナス加点はありません</span> : bonuses.slice(-6).reverse().map((entry) => <span key={entry.id}><time>{formatClock(entry.atSeconds)}</time><b>+{entry.points}</b>{entry.patientId ? `症例${entry.patientId} ` : ""}{entry.reason}</span>)
+        : events.length === 0 ? <span>訓練開始後の操作が記録されます</span> : events.slice(-5).reverse().map((event) => <span key={event.id}><time>{formatClock(event.atSeconds)}</time>{event.label}</span>)}
     </div>
   </section>;
+}
+
+function FinalResultsScreen({ totalScore, completedPatients, goalCount, scores, onClose, onRestart }: { totalScore: number; completedPatients: number; goalCount: number; scores: ScoreEntry[]; onClose: () => void; onRestart: () => void }) {
+  const grade = totalScore >= 95 ? "EXCELLENT" : totalScore >= 85 ? "GREAT" : totalScore >= 70 ? "GOOD" : totalScore >= 50 ? "REVIEW" : "RETRY";
+  const gradeLabel = totalScore >= 95 ? "非常に的確な対応です" : totalScore >= 85 ? "安定した災害対応です" : totalScore >= 70 ? "重要な流れを維持できています" : totalScore >= 50 ? "振り返りで次の改善点を整理しましょう" : "優先順位と急変対応を再確認しましょう";
+  const deductions = scores.filter((entry) => entry.points < 0).length;
+  const bonuses = scores.filter((entry) => entry.points > 0 && entry.countsTowardTotal).length;
+  return <div className="final-results-backdrop" role="dialog" aria-modal="true" aria-label="訓練結果発表">
+    <section className="final-results">
+      <header className="final-results-head"><span>TKH DISASTER TRAINING SIMULATOR</span><time>11:40 TRAINING COMPLETE</time></header>
+      <div className="final-results-main">
+        <div className="final-grade"><span>OVERALL EVALUATION</span><strong>{grade}</strong><p>{gradeLabel}</p></div>
+        <div className="final-score"><span>総合スコア</span><strong>{totalScore}<small>/100</small></strong><p>ゴール到達 {completedPatients} / {goalCount}</p></div>
+      </div>
+      <div className="final-metrics"><div><span>ゴール到達率</span><strong>{Math.round((completedPatients / goalCount) * 100)}%</strong></div><div><span>減点項目</span><strong>{deductions}</strong></div><div><span>ボーナス獲得</span><strong>{bonuses}</strong></div></div>
+      <footer><button className="final-secondary" onClick={onClose}>結果を閉じる</button><button className="final-primary" onClick={onRestart}><RotateCcw size={17} />もう一度訓練する</button></footer>
+    </section>
+  </div>;
 }
 
 function OpeningScreen({
@@ -1230,7 +1387,7 @@ function OpeningScreen({
         </section>
         <section className="opening-section">
           <div className="opening-section-title"><Trophy size={18} /><div><strong>スコア</strong><span>開始時は100点</span></div></div>
-          <p className="opening-score">到着目安を過ぎても訓練は継続し、全症例のゴール到達時に評価します。未トリアージ、過小トリアージ、急変時の対応遅れは減点。重症症例を必要な治療後にゴールさせるとボーナスで回復します。</p>
+          <p className="opening-score">11:40で訓練終了し、結果発表に移ります。未トリアージ、過小トリアージ、急変時の対応遅れ、誤ったゴールは減点。重症症例を必要な治療後にゴールさせるとボーナスで回復します。</p>
           <div className="opening-score-scale"><span>100</span><i /><span>0</span></div>
         </section>
         <section className="opening-section opening-setup-section">
