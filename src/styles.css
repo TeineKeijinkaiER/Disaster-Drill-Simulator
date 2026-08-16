@@ -333,6 +333,13 @@ button { cursor: pointer; }
 .final-results footer { display: flex; justify-content: flex-end; gap: 9px; padding: 17px 20px; background: #fff; }
 .final-results footer button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 15px; border-radius: 5px; font-size: 12px; font-weight: 900; }
 .final-secondary { border: 1px solid #c8d4ce; background: #fff; color: #4e6158; }.final-primary { border: 1px solid #1d6851; background: #1d6851; color: #fff; }
+.final-review { max-height: min(790px, calc(100vh - 56px)); display: flex; flex-direction: column; }
+.final-review-body { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; overflow: auto; background: #f5f8f6; }
+.final-review-body > section { min-width: 0; padding: 23px 25px; border-right: 1px solid #dbe4df; }.final-review-body > section:last-child { border-right: 0; }
+.final-review-title { margin-bottom: 13px; }.final-review-title span { color: #6c7c74; font-size: 9px; font-weight: 900; letter-spacing: .08em; }.final-review-title h2 { margin: 4px 0 0; color: #294f41; font-size: 18px; }
+.final-review-list { display: grid; gap: 7px; }.final-review-list article { display: grid; grid-template-columns: 52px 34px minmax(0, 1fr); align-items: start; gap: 8px; padding: 10px; border: 1px solid #e0c6c6; border-left: 3px solid #b64143; background: #fffafa; }
+.final-review-list time { color: #7b827f; font-size: 10px; font-variant-numeric: tabular-nums; }.final-review-list b { color: #a62f34; font-size: 13px; }.final-review-list div { display: grid; gap: 3px; }.final-review-list strong { color: #495a53; font-size: 10px; }.final-review-list span { color: #4d5b55; font-size: 11px; line-height: 1.5; }
+.final-review-list.positive article { border-color: #c7decf; border-left-color: #267150; background: #fbfefc; }.final-review-list.positive b { color: #267150; }.final-empty { margin: 0; padding: 14px; border: 1px dashed #cbd8d1; color: #6a7972; font-size: 12px; }
 @keyframes result-enter { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
 .projection .map-area { padding: 19px 20px 24px; }

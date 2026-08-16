@@ -12,16 +12,20 @@ export class ResultsMusic {
   private master: GainNode | null = null;
   private timer: number | null = null;
 
+  async unlock() {
+    this.context ??= new AudioContext();
+    this.master ??= this.context.createGain();
+    this.master.connect(this.context.destination);
+    await this.context.resume();
+  }
+
   start(volume: number) {
     if (this.timer !== null) {
       this.setVolume(volume);
       return;
     }
-    this.context ??= new AudioContext();
-    this.master ??= this.context.createGain();
-    this.master.connect(this.context.destination);
+    if (!this.context || !this.master) return;
     this.setVolume(volume);
-    void this.context.resume();
     this.playPhrase();
     this.timer = window.setInterval(() => this.playPhrase(), 10_000);
   }

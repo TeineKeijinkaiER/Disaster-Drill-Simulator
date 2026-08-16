@@ -281,6 +281,7 @@ function App() {
   const [scores, setScores] = useState<ScoreEntry[]>([]);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [showFinalReport, setShowFinalReport] = useState(false);
+  const [showFinalReview, setShowFinalReview] = useState(false);
   const [bgmEnabled, setBgmEnabled] = useState(true);
   const [bgmVolume, setBgmVolume] = useState(36);
   const [hydrated, setHydrated] = useState(false);
@@ -373,6 +374,12 @@ function App() {
       audio.muted = wasMuted;
     }
     primeEffectAudio();
+    resultsMusicRef.current ??= new ResultsMusic();
+    try {
+      await resultsMusicRef.current.unlock();
+    } catch {
+      // A later user interaction can retry the browser audio permission.
+    }
   }, [ensureBgmAudio, primeEffectAudio, showOpening]);
 
   const stopBgm = useCallback(() => {
@@ -582,6 +589,7 @@ function App() {
     setSessionEnded(true);
     setShowScore(true);
     setShowFinalReport(true);
+    setShowFinalReview(false);
     recordEvent("session_ended", "11:40となり、訓練を終了。結果発表へ移行");
     setWorkflowNotice("11:40 訓練終了。結果発表です");
     playFanfare();
@@ -980,6 +988,7 @@ function App() {
     setScores([]);
     setSessionEnded(false);
     setShowFinalReport(false);
+    setShowFinalReview(false);
     stopResultsMusic();
     localStorage.removeItem(STORAGE_KEY);
   };
@@ -990,6 +999,12 @@ function App() {
     // Start the in-game track directly in the click handler so browser media policies
     // cannot interrupt playback while React switches away from the opening screen.
     primeEffectAudio();
+    resultsMusicRef.current ??= new ResultsMusic();
+    try {
+      await resultsMusicRef.current.unlock();
+    } catch {
+      // The opening screen audio control remains available to retry.
+    }
     const audio = ensureBgmAudio("training");
     audio.currentTime = 0;
     audio.muted = false;
@@ -1011,6 +1026,12 @@ function App() {
     if (!bgmEnabled) return;
     await startBgm(showOpening ? "opening" : "training", true);
   }, [bgmEnabled, running, showOpening, startBgm, unlockAudio]);
+
+  const returnToOpening = () => {
+    resetSession(false);
+    setShowScore(false);
+    setShowOpening(true);
+  };
 
   const zonesInMap: Array<{ id: ZoneId; title: string; icon: typeof Hospital; className: string; capacity?: number }> = [
     { id: "ambulance", title: "救急車搬入口", icon: Ambulance, className: "arrival-zone" },
@@ -1113,7 +1134,9 @@ function App() {
       )}
 
       {showScore && <ScorePanel totals={scoreTotals} entries={scores} events={events} totalScore={totalScore} completedPatients={completedPatients} goalCount={scenario.patientIds.length} finalReport={showFinalReport} />}
-      {showFinalReport && <FinalResultsScreen totalScore={totalScore} completedPatients={completedPatients} goalCount={scenario.patientIds.length} scores={scores} onClose={() => setShowFinalReport(false)} onRestart={() => resetSession(false)} />}
+      {showFinalReport && (showFinalReview
+        ? <FinalReviewScreen scores={scores} onBack={() => setShowFinalReview(false)} onReturnToOpening={returnToOpening} />
+        : <FinalResultsScreen totalScore={totalScore} completedPatients={completedPatients} goalCount={scenario.patientIds.length} scores={scores} onReview={() => setShowFinalReview(true)} onClose={returnToOpening} onRestart={returnToOpening} />)}
       {(workflowNotice || treatmentFeedback) && <div className="notice-stack" role="status">
         {workflowNotice && <div className="workflow-notice acute-notice">{workflowNotice}</div>}
         {treatmentFeedback && <div className="workflow-notice nurse-notice"><strong>看護師</strong><span>{treatmentFeedback.replace("看護師: ", "")}</span></div>}
@@ -1327,7 +1350,7 @@ function ScorePanel({ totals, entries, events, totalScore, completedPatients, go
   </section>;
 }
 
-function FinalResultsScreen({ totalScore, completedPatients, goalCount, scores, onClose, onRestart }: { totalScore: number; completedPatients: number; goalCount: number; scores: ScoreEntry[]; onClose: () => void; onRestart: () => void }) {
+function FinalResultsScreen({ totalScore, completedPatients, goalCount, scores, onReview, onClose, onRestart }: { totalScore: number; completedPatients: number; goalCount: number; scores: ScoreEntry[]; onReview: () => void; onClose: () => void; onRestart: () => void }) {
   const grade = totalScore >= 95 ? "EXCELLENT" : totalScore >= 85 ? "GREAT" : totalScore >= 70 ? "GOOD" : totalScore >= 50 ? "REVIEW" : "RETRY";
   const gradeLabel = totalScore >= 95 ? "非常に的確な対応です" : totalScore >= 85 ? "安定した災害対応です" : totalScore >= 70 ? "重要な流れを維持できています" : totalScore >= 50 ? "振り返りで次の改善点を整理しましょう" : "優先順位と急変対応を再確認しましょう";
   const deductions = scores.filter((entry) => entry.points < 0).length;
@@ -1340,7 +1363,22 @@ function FinalResultsScreen({ totalScore, completedPatients, goalCount, scores, 
         <div className="final-score"><span>総合スコア</span><strong>{totalScore}<small>/100</small></strong><p>ゴール到達 {completedPatients} / {goalCount}</p></div>
       </div>
       <div className="final-metrics"><div><span>ゴール到達率</span><strong>{Math.round((completedPatients / goalCount) * 100)}%</strong></div><div><span>減点項目</span><strong>{deductions}</strong></div><div><span>ボーナス獲得</span><strong>{bonuses}</strong></div></div>
-      <footer><button className="final-secondary" onClick={onClose}>結果を閉じる</button><button className="final-primary" onClick={onRestart}><RotateCcw size={17} />もう一度訓練する</button></footer>
+      <footer><button className="final-secondary" onClick={onReview}>減点と評価の総括</button><button className="final-secondary" onClick={onClose}>オープニングへ戻る</button><button className="final-primary" onClick={onRestart}><RotateCcw size={17} />もう一度訓練する</button></footer>
+    </section>
+  </div>;
+}
+
+function FinalReviewScreen({ scores, onBack, onReturnToOpening }: { scores: ScoreEntry[]; onBack: () => void; onReturnToOpening: () => void }) {
+  const deductions = scores.filter((entry) => entry.points < 0).slice().reverse();
+  const strengths = scores.filter((entry) => entry.points > 0 && entry.countsTowardTotal).slice().reverse();
+  return <div className="final-results-backdrop" role="dialog" aria-modal="true" aria-label="評価の総括">
+    <section className="final-results final-review">
+      <header className="final-results-head"><span>TRAINING REVIEW</span><time>振り返り</time></header>
+      <div className="final-review-body">
+        <section><div className="final-review-title"><span>DEDUCTIONS</span><h2>減点ポイント</h2></div>{deductions.length === 0 ? <p className="final-empty">減点はありません。</p> : <div className="final-review-list">{deductions.map((entry) => <article key={entry.id}><time>{formatClock(entry.atSeconds)}</time><b>{entry.points}</b><div><strong>{entry.patientId ? `症例${entry.patientId}` : "全体"}</strong><span>{entry.reason}</span></div></article>)}</div>}</section>
+        <section><div className="final-review-title"><span>STRENGTHS</span><h2>ボーナス・良かった対応</h2></div>{strengths.length === 0 ? <p className="final-empty">ボーナス加点はありません。</p> : <div className="final-review-list positive">{strengths.map((entry) => <article key={entry.id}><time>{formatClock(entry.atSeconds)}</time><b>+{entry.points}</b><div><strong>{entry.patientId ? `症例${entry.patientId}` : "全体"}</strong><span>{entry.reason}</span></div></article>)}</div>}</section>
+      </div>
+      <footer><button className="final-secondary" onClick={onBack}>結果発表へ戻る</button><button className="final-primary" onClick={onReturnToOpening}>オープニングへ戻る</button></footer>
     </section>
   </div>;
 }
