@@ -47,6 +47,9 @@ export type TreatmentOption =
   | "輸血"
   | "アトロピン投与"
   | "アドレナリン投与"
+  | "吸入"
+  | "ブドウ糖投与"
+  | "吸引"
   | "胸腔ドレーン留置"
   | "骨盤バインダー"
   | "骨折部の固定"
@@ -72,7 +75,7 @@ export interface TreatmentPlan {
 
 export const treatmentOptions: TreatmentOption[] = [
   "モニター装着", "酸素投与", "気道確保・挿管", "末梢ルート確保", "急速輸液", "輸血",
-  "アトロピン投与", "アドレナリン投与", "胸腔ドレーン留置", "骨盤バインダー",
+  "アトロピン投与", "アドレナリン投与", "吸入", "ブドウ糖投与", "吸引", "胸腔ドレーン留置", "骨盤バインダー",
   "骨折部の固定", "頭部挙上", "鎮痛", "創部処置",
 ];
 
@@ -128,6 +131,9 @@ export function isTreatmentAllowed(patient: Patient, option: TreatmentOption) {
   if (option === "鎮痛") return /疼痛|痛|骨折|打撲/.test(text);
   if (option === "アトロピン投与") return /アトロピン|徐脈|房室ブロック/.test(text);
   if (option === "アドレナリン投与") return /アドレナリン|アナフィラキシー|心停止|CPA/.test(text);
+  if (option === "吸入") return /吸入|喘息|気管支攣縮|喘鳴/.test(text);
+  if (option === "ブドウ糖投与") return /ブドウ糖|低血糖|血糖/.test(text);
+  if (option === "吸引") return /吸引|分泌物|痰|喀痰|気道内/.test(text);
   if (option === "外科コール") return /外科|開腹|開胸|腹膜炎|消化管穿孔/.test(text);
   if (option === "脳神経外科コール") return /脳神経外科|開頭|硬膜[下外]|頭蓋内|脳外傷|脳梗塞/.test(text);
   if (option === "整形外科コール") return /骨折|脱臼|整形外科/.test(text);

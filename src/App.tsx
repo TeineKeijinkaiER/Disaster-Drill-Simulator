@@ -1108,7 +1108,7 @@ function App() {
                     {!imagingAvailable && <p className="test-access-note">画像所見は、画像検査室で検査が完了してから閲覧できます。</p>}
                     <div className="test-result"><strong>{selectedTest === "bloodGas" ? "血液ガス" : selectedTest === "specimen" ? "検体検査" : selectedTest === "ecg" ? "心電図" : "画像検査"}</strong><p>{selectedTest === "imaging" && !imagingAvailable ? "画像検査の完了を待機中" : testResult(selectedPatient, selectedTest)}</p></div>
                   </details>}
-                  {canClinicalAssess && <details className="information-stage treatment-stage collapsible-stage" open>
+                  {canClinicalAssess && <details className="information-stage treatment-stage collapsible-stage">
                     <summary>救急治療</summary>
                     <p>{selectedTreatmentPlan ? `初療開始から ${Math.ceil(selectedTreatmentPlan.deadlineSeconds / 60)}分以内に必要な対応を選択してください。` : "患者の状態に応じて必要な対応を選択してください。"}</p>
                     <div className="treatment-actions">
