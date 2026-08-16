@@ -61,7 +61,6 @@ import {
   type ScoreEntry,
 } from "./game";
 import { laboratoryResultsByPatientId, type LaboratoryRow } from "./laboratoryResults";
-import { ResultsMusic } from "./resultsMusic";
 
 interface PatientRuntime {
   zone: ZoneId;
@@ -116,6 +115,7 @@ const EFFECT_SOURCES: Record<EffectSound, string> = {
   buzzer: `${import.meta.env.BASE_URL}game-sfx-buzzer.wav?v=1`,
   fanfare: `${import.meta.env.BASE_URL}game-sfx-fanfare.wav?v=1`,
 };
+const RESULTS_BGM_SOURCE = `${import.meta.env.BASE_URL}game-sfx-fanfare.wav?v=1`;
 
 const defaultRuntime = (): Record<number, PatientRuntime> => {
   return Object.fromEntries(patients.map((patient) => [
@@ -287,7 +287,7 @@ function App() {
   const [hydrated, setHydrated] = useState(false);
   const bgmAudioRef = useRef<HTMLAudioElement | null>(null);
   const effectAudioRefs = useRef<Partial<Record<EffectSound, HTMLAudioElement>>>({});
-  const resultsMusicRef = useRef<ResultsMusic | null>(null);
+  const resultsBgmAudioRef = useRef<HTMLAudioElement | null>(null);
   const bgmModeRef = useRef<BgmMode | null>(null);
   const bgmSourceRef = useRef<BgmMode | null>(null);
   const audioUnlockedRef = useRef(false);
@@ -334,6 +334,14 @@ function App() {
     effectAudioRefs.current[effect] = audio;
     return audio;
   }, []);
+  const ensureResultsBgmAudio = useCallback(() => {
+    if (resultsBgmAudioRef.current) return resultsBgmAudioRef.current;
+    const audio = new Audio(RESULTS_BGM_SOURCE);
+    audio.loop = true;
+    audio.preload = "auto";
+    resultsBgmAudioRef.current = audio;
+    return audio;
+  }, []);
 
   const primeEffectAudio = useCallback(() => {
     (Object.keys(EFFECT_SOURCES) as EffectSound[]).forEach((effect) => {
@@ -348,7 +356,15 @@ function App() {
         audio.muted = false;
       });
     });
-  }, [ensureEffectAudio]);
+    const resultsAudio = ensureResultsBgmAudio();
+    const originalTime = resultsAudio.currentTime;
+    resultsAudio.muted = true;
+    void resultsAudio.play().then(() => {
+      resultsAudio.pause();
+      resultsAudio.currentTime = originalTime;
+      resultsAudio.muted = false;
+    }).catch(() => { resultsAudio.muted = false; });
+  }, [ensureEffectAudio, ensureResultsBgmAudio]);
 
   const playEffect = useCallback((effect: EffectSound) => {
     const audio = ensureEffectAudio(effect);
@@ -374,12 +390,6 @@ function App() {
       audio.muted = wasMuted;
     }
     primeEffectAudio();
-    resultsMusicRef.current ??= new ResultsMusic();
-    try {
-      await resultsMusicRef.current.unlock();
-    } catch {
-      // A later user interaction can retry the browser audio permission.
-    }
   }, [ensureBgmAudio, primeEffectAudio, showOpening]);
 
   const stopBgm = useCallback(() => {
@@ -389,12 +399,19 @@ function App() {
     audio.currentTime = 0;
     bgmModeRef.current = null;
   }, []);
-  const stopResultsMusic = useCallback(() => resultsMusicRef.current?.stop(), []);
+  const stopResultsMusic = useCallback(() => {
+    const audio = resultsBgmAudioRef.current;
+    if (!audio) return;
+    audio.pause();
+    audio.currentTime = 0;
+  }, []);
   const startResultsMusic = useCallback(() => {
     if (!bgmEnabled) return;
-    resultsMusicRef.current ??= new ResultsMusic();
-    resultsMusicRef.current.start(bgmVolume / 100);
-  }, [bgmEnabled, bgmVolume]);
+    const audio = ensureResultsBgmAudio();
+    audio.volume = Math.min(1, Math.max(0, bgmVolume / 100));
+    audio.muted = false;
+    void audio.play();
+  }, [bgmEnabled, bgmVolume, ensureResultsBgmAudio]);
 
   const startBgm = useCallback(async (mode?: BgmMode, force = false) => {
     if (!bgmEnabled && !force) return;
@@ -437,10 +454,11 @@ function App() {
   }, [bgmEnabled, running, sessionEnded, showOpening, startBgm, startResultsMusic, stopBgm, stopResultsMusic]);
 
   useEffect(() => {
+    const resultsAudio = resultsBgmAudioRef.current;
+    if (resultsAudio) resultsAudio.volume = Math.min(1, Math.max(0, bgmVolume / 100));
     const audio = bgmAudioRef.current;
     if (!audio || !bgmModeRef.current) return;
     audio.volume = (bgmModeRef.current === "opening" ? 0.72 : 1) * (bgmVolume / 100);
-    resultsMusicRef.current?.setVolume(bgmVolume / 100);
   }, [bgmVolume]);
 
   useEffect(() => () => { stopBgm(); stopResultsMusic(); }, [stopBgm, stopResultsMusic]);
@@ -592,8 +610,7 @@ function App() {
     setShowFinalReview(false);
     recordEvent("session_ended", "11:40となり、訓練を終了。結果発表へ移行");
     setWorkflowNotice("11:40 訓練終了。結果発表です");
-    playFanfare();
-  }, [clockSeconds, playFanfare, recordEvent, sessionEnded, showOpening]);
+  }, [clockSeconds, recordEvent, sessionEnded, showOpening]);
 
   useEffect(() => {
     const elapsedMinutes = elapsedSeconds / 60;
@@ -999,12 +1016,6 @@ function App() {
     // Start the in-game track directly in the click handler so browser media policies
     // cannot interrupt playback while React switches away from the opening screen.
     primeEffectAudio();
-    resultsMusicRef.current ??= new ResultsMusic();
-    try {
-      await resultsMusicRef.current.unlock();
-    } catch {
-      // The opening screen audio control remains available to retry.
-    }
     const audio = ensureBgmAudio("training");
     audio.currentTime = 0;
     audio.muted = false;
